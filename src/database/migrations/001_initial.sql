@@ -116,12 +116,16 @@ CREATE OR REPLACE FUNCTION app_tenant_id() RETURNS UUID AS $$
   SELECT NULLIF(current_setting('app.tenant_id', true), '')::UUID;
 $$ LANGUAGE SQL STABLE;
 
-DO $$ BEGIN
-  CREATE POLICY projects_tenant_policy ON seo_projects USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
-  CREATE POLICY clusters_tenant_policy ON seo_keyword_clusters USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
-  CREATE POLICY contents_tenant_policy ON seo_contents USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
-  CREATE POLICY logs_tenant_policy ON seo_publish_logs USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
-  CREATE POLICY jobs_tenant_policy ON seo_jobs USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
-  CREATE POLICY indexing_logs_tenant_policy ON seo_indexing_logs USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+DROP POLICY IF EXISTS projects_tenant_policy ON seo_projects;
+DROP POLICY IF EXISTS clusters_tenant_policy ON seo_keyword_clusters;
+DROP POLICY IF EXISTS contents_tenant_policy ON seo_contents;
+DROP POLICY IF EXISTS logs_tenant_policy ON seo_publish_logs;
+DROP POLICY IF EXISTS jobs_tenant_policy ON seo_jobs;
+DROP POLICY IF EXISTS indexing_logs_tenant_policy ON seo_indexing_logs;
+
+CREATE POLICY projects_tenant_policy ON seo_projects USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
+CREATE POLICY clusters_tenant_policy ON seo_keyword_clusters USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
+CREATE POLICY contents_tenant_policy ON seo_contents USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
+CREATE POLICY logs_tenant_policy ON seo_publish_logs USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
+CREATE POLICY jobs_tenant_policy ON seo_jobs USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
+CREATE POLICY indexing_logs_tenant_policy ON seo_indexing_logs USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());

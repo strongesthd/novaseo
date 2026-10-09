@@ -94,7 +94,12 @@ jobs:
             rm -rf "$BACKUP_DIR"
 
             cd "$APP_DIR"
-            docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans
+            if ! docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans 2>&1; then
+              echo "docker compose up failed, dumping logs:"
+              docker compose -f docker-compose.prod.yml ps -a || true
+              docker compose -f docker-compose.prod.yml logs --tail 100 migrate postgres redis || true
+              exit 1
+            fi
 
             for attempt in $(seq 1 30); do
               if curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3009/health >/dev/null; then
