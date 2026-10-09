@@ -4,6 +4,7 @@ COPY package*.json tsconfig.json ./
 RUN npm ci
 COPY src ./src
 RUN npm run build
+COPY src/database/migrations ./dist/src/database/migrations
 
 FROM node:20-alpine AS production
 WORKDIR /app
