@@ -1,0 +1,60 @@
+﻿services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: novaseo
+      POSTGRES_USER: novaseo
+      POSTGRES_PASSWORD: novaseo_pass
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novaseo -d novaseo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    ports: ["${API_PORT:-3000}:3000"]
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://novaseo:novaseo_pass@postgres:5432/novaseo
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+      LOG_LEVEL: info
+      QUEUE_CONCURRENCY: 5
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    command: sh -c "node dist/src/database/migrate.js && node dist/src/server.js"
+    restart: unless-stopped
+
+  worker:
+    build: .
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://novaseo:novaseo_pass@postgres:5432/novaseo
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+      LOG_LEVEL: info
+      QUEUE_CONCURRENCY: 5
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    command: node dist/src/worker.js
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

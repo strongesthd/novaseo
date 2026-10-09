@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [novaseo]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['sh', '-c', 'redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass "$${REDIS_PASSWORD}"}']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli $${REDIS_PASSWORD:+-a "$${REDIS_PASSWORD}"} ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [novaseo]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    restart: 'no'
+    command: ['node', 'dist/src/database/migrate.js']
+    environment: &app_environment
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      QUEUE_CONCURRENCY: ${QUEUE_CONCURRENCY:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [novaseo]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${API_PORT:-3000}:3000'
+    environment: *app_environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks: [novaseo]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    command: ['node', 'dist/src/worker.js']
+    environment: *app_environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks: [novaseo]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  novaseo:
+    driver: bridge
