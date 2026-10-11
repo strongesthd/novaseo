@@ -87,83 +87,11 @@ jobs:
             mkdir -p "$APP_DIR"
             test -f "$APP_DIR/.env" || { echo "Missing required runtime file: $APP_DIR/.env"; exit 1; }
 
-            python3 - "$APP_DIR/.env" <<'PY'
-            import os
-            import pathlib
-            import stat
-            import sys
-            import tempfile
-
-            path = pathlib.Path(sys.argv[1])
-            keys = (b"DB_PASSWORD", b"REDIS_PASSWORD", b"JWT_SECRET", b"ENCRYPTION_KEY")
-            if path.is_symlink():
-                raise SystemExit("Runtime environment file must not be a symlink")
-
-            source = path.read_bytes()
-            lines = source.splitlines(keepends=True)
-            found = set()
-            output = []
-            changed = False
-
-            for line in lines:
-                content = line.rstrip(b"\r\n")
-                ending = line[len(content):]
-                key = next((item for item in keys if content.startswith(item + b"=")), None)
-                if key is None:
-                    output.append(line)
-                    continue
-
-                if key in found:
-                    raise SystemExit(f"Duplicate {key.decode()} in runtime environment file")
-                found.add(key)
-                value = content[len(key) + 1:]
-                if len(value) >= 2 and value.startswith(b"'") and value.endswith(b"'"):
-                    output.append(line)
-                    continue
-                if (
-                    not value
-                    or value.startswith((b"'", b'"', b"#"))
-                    or value.endswith((b"'", b'"'))
-                    or b"'" in value
-                    or value != value.strip()
-                    or b" #" in value
-                    or b"\t#" in value
-                ):
-                    raise SystemExit(f"Cannot safely normalize {key.decode()} in runtime environment file")
-
-                output.append(key + b"='" + value + b"'" + ending)
-                changed = True
-
-            missing = set(keys) - found
-            if missing:
-                raise SystemExit(
-                    "Missing runtime environment keys: "
-                    + ", ".join(key.decode() for key in sorted(missing))
-                )
-
-            if changed:
-                info = path.stat()
-                descriptor, temporary = tempfile.mkstemp(prefix=".env.", dir=path.parent)
-                try:
-                    with os.fdopen(descriptor, "wb") as target:
-                        target.write(b"".join(output))
-                        target.flush()
-                        os.fsync(target.fileno())
-                    os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
-                    os.chown(temporary, info.st_uid, info.st_gid)
-                    os.replace(temporary, path)
-                except BaseException:
-                    try:
-                        os.unlink(temporary)
-                    except FileNotFoundError:
-                        pass
-                    raise
-                print("Normalized runtime secret quoting without changing secret values")
-            PY
-
             mkdir -p "$APP_DIR/releases"
             mkdir "$RELEASE_DIR"
             tar -xzf "$PACKAGE" -C "$RELEASE_DIR"
+
+            python3 "$RELEASE_DIR/deploy/normalize-production-env.py" "$APP_DIR/.env"
 
             COMPOSE_FILE="$RELEASE_DIR/docker-compose.prod.yml"
             docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" config --quiet
