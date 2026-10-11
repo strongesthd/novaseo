@@ -20,18 +20,38 @@ existing database and Redis volumes without clearing the application directory.
 
    Replace every placeholder before the first deploy. Keep the values of
    `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, and `ENCRYPTION_KEY` on one
-   line and single-quoted so Compose preserves characters such as `$` and `#`.
-   The deploy workflow checks this before starting containers.
-3. Copy `deploy/nginx-novaseo.conf` to `/etc/nginx/conf.d/novaseo.conf`,
-   replace `novaseo.example.com` and `127.0.0.1:3009` (must match `API_PORT`
-   in `.env`), then reload:
+   line. The deploy workflow quotes safe legacy values without changing their
+   contents and rejects ambiguous values.
+3. Point `novaseo.novatechhp.vn` to the VPS. On this VPS, Cloudflare redirects
+   HTTP to HTTPS, so the ACME challenge must be reachable on both ports during
+   certificate issuance. Install the temporary bootstrap vhost, which uses the
+   existing Cloudflare Origin certificate only between Cloudflare and the VPS:
 
    ```bash
+   install -d -m 755 /var/www/certbot
+   install -m 644 deploy/nginx-novaseo-bootstrap.conf \
+     /etc/nginx/sites-available/novaseo.novatechhp.vn
+   ln -sfn /etc/nginx/sites-available/novaseo.novatechhp.vn \
+     /etc/nginx/sites-enabled/novaseo.novatechhp.vn
    nginx -t && systemctl reload nginx
+   certbot certonly --webroot -w /var/www/certbot \
+     -d novaseo.novatechhp.vn --agree-tos --register-unsafely-without-email \
+     --non-interactive
    ```
 
-   Point the domain's DNS A record to the VPS IP. Configure TLS separately
-   (for example, with Certbot).
+   The bootstrap certificate is not valid for direct browser access. Once
+   Certbot succeeds, replace the bootstrap vhost with
+   `deploy/nginx-novaseo.conf`. It retains the ACME challenge location on both
+   ports because Cloudflare may redirect HTTP validation to HTTPS. Install the
+   renewal hook and reload:
+
+   ```bash
+   install -m 644 deploy/nginx-novaseo.conf \
+     /etc/nginx/sites-available/novaseo.novatechhp.vn
+   install -D -m 755 deploy/certbot-reload-nginx.sh \
+     /etc/letsencrypt/renewal-hooks/deploy/50-reload-nginx
+   nginx -t && systemctl reload nginx
+   ```
 
 ## GitHub environment secrets
 
