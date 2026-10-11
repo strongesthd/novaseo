@@ -2,7 +2,9 @@
 
 Every push to `main` is deployed by GitHub Actions to `/home/app/novaseo` on
 the VPS. Runtime secrets live only in `/home/app/novaseo/.env`; the workflow
-preserves that file across releases and never uploads it from the repository.
+never uploads that file from the repository. Each release is unpacked into its
+own directory and uses the fixed Compose project name `novaseo`, preserving the
+existing database and Redis volumes without clearing the application directory.
 
 ## One-time VPS setup
 
@@ -16,7 +18,10 @@ preserves that file across releases and never uploads it from the repository.
    ssh -p <ssh-port> <ssh-user>@<vps-host> 'chmod 600 /home/app/novaseo/.env'
    ```
 
-   Replace every placeholder before the first deploy.
+   Replace every placeholder before the first deploy. Keep the values of
+   `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, and `ENCRYPTION_KEY` on one
+   line and single-quoted so Compose preserves characters such as `$` and `#`.
+   The deploy workflow checks this before starting containers.
 3. Copy `deploy/nginx-novaseo.conf` to `/etc/nginx/conf.d/novaseo.conf`,
    replace `novaseo.example.com` and `127.0.0.1:3009` (must match `API_PORT`
    in `.env`), then reload:
@@ -41,8 +46,8 @@ Create the **`novaseo-production`** environment and add:
 
 ## Deploy
 
-Push to `main`. The workflow uploads a source archive, rebuilds the API and
-worker images, runs migrations, and verifies:
+Push to `main`. The workflow uploads a source archive to a run-specific release
+directory, rebuilds the API and worker images, runs migrations, and verifies:
 
 ```text
 http://127.0.0.1:${API_PORT}/health

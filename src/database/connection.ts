@@ -5,8 +5,18 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const { Pool } = pg;
 
+const connectionOptions = config.database.host
+  ? {
+      host: config.database.host,
+      port: config.database.port,
+      database: config.database.name,
+      user: config.database.user,
+      password: config.database.password
+    }
+  : { connectionString: config.database.url };
+
 export const pool = new Pool({
-  connectionString: config.database.url,
+  ...connectionOptions,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000

@@ -76,6 +76,7 @@ jobs:
             set -Eeuo pipefail
 
             APP_DIR=/home/app/novaseo
+            RELEASE_DIR="$APP_DIR/releases/${{ github.run_id }}-${{ github.run_attempt }}"
             UPLOAD_DIR=/tmp/novaseo-upload-${{ github.run_id }}
             PACKAGE="$UPLOAD_DIR/novaseo-deploy.tgz"
             if [ ! -f "$PACKAGE" ]; then
@@ -86,31 +87,34 @@ jobs:
             mkdir -p "$APP_DIR"
             test -f "$APP_DIR/.env" || { echo "Missing required runtime file: $APP_DIR/.env"; exit 1; }
 
-            BACKUP_DIR=$(mktemp -d /tmp/novaseo-deploy.XXXXXX)
-            cp "$APP_DIR/.env" "$BACKUP_DIR/.env"
-            find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf {} +
-            tar -xzf "$PACKAGE" -C "$APP_DIR"
-            cp "$BACKUP_DIR/.env" "$APP_DIR/.env"
-            rm -rf "$BACKUP_DIR"
+            for key in DB_PASSWORD REDIS_PASSWORD JWT_SECRET ENCRYPTION_KEY; do
+              if ! grep -Eq "^${key}='.*'$" "$APP_DIR/.env"; then
+                echo "Set $key as a single-quoted value in $APP_DIR/.env before deploying"
+                exit 1
+              fi
+            done
 
-            cd "$APP_DIR"
-            if ! docker compose -f docker-compose.prod.yml up -d --build --force-recreate --remove-orphans 2>&1; then
+            mkdir -p "$APP_DIR/releases"
+            mkdir "$RELEASE_DIR"
+            tar -xzf "$PACKAGE" -C "$RELEASE_DIR"
+
+            COMPOSE_FILE="$RELEASE_DIR/docker-compose.prod.yml"
+            if ! docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" up -d --build --force-recreate 2>&1; then
               echo "docker compose up failed, dumping logs:"
-              docker compose -f docker-compose.prod.yml ps -a || true
-              docker compose -f docker-compose.prod.yml logs --tail 100 migrate postgres redis || true
+              docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" ps -a || true
+              docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" logs --tail 100 migrate postgres redis || true
               exit 1
             fi
 
             for attempt in $(seq 1 30); do
               if curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3009/health >/dev/null; then
                 rm -rf "$UPLOAD_DIR"
-                docker image prune -f
                 echo 'Deploy done'
                 exit 0
               fi
               sleep 3
             done
 
-            docker compose -f docker-compose.prod.yml ps
-            docker compose -f docker-compose.prod.yml logs --tail 100 api worker migrate || true
+            docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" ps
+            docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" logs --tail 100 api worker migrate || true
             exit 1
