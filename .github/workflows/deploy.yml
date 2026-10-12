@@ -145,15 +145,27 @@ jobs:
               exit 1
             fi
 
-            if ! curl --fail --silent --show-error --max-time 10 \
-              --resolve novaseo.novatechhp.vn:443:127.0.0.1 \
-              https://novaseo.novatechhp.vn/ | grep -q 'id="root"'; then
+            VERIFY_BODY=$(mktemp "$APP_DIR/.novaseo-dashboard.XXXXXX")
+            DASHBOARD_READY=0
+            for attempt in $(seq 1 10); do
+              if curl --noproxy '*' --fail --silent --max-time 10 \
+                --resolve novaseo.novatechhp.vn:443:127.0.0.1 \
+                --output "$VERIFY_BODY" \
+                https://novaseo.novatechhp.vn/ \
+                && grep -q 'id="root"' "$VERIFY_BODY"; then
+                DASHBOARD_READY=1
+                break
+              fi
+              sleep 1
+            done
+            rm -f "$VERIFY_BODY"
+            if [ "$DASHBOARD_READY" -ne 1 ]; then
               rollback_nginx
               exit 1
             fi
             rm -f "$NGINX_BACKUP"
 
-            if ! curl --fail --silent --show-error --max-time 10 \
+            if ! curl --noproxy '*' --fail --silent --show-error --max-time 10 \
               --resolve novaseo.novatechhp.vn:443:127.0.0.1 \
               https://novaseo.novatechhp.vn/api/v1/auth/setup-status | grep -q '"hasOwner"'; then
               echo 'Dashboard is live but auth API verification failed'
