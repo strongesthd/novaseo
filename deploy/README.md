@@ -67,10 +67,13 @@ Create the **`novaseo-production`** environment and add:
 ## Deploy
 
 Push to `main`. The workflow uploads a source archive to a run-specific release
-directory, rebuilds the API and worker images, runs migrations, and verifies:
+directory, rebuilds the API, web, and worker images, runs migrations, installs
+the matching Nginx vhost, reloads Nginx, and verifies the dashboard and API:
 
 ```text
+https://novaseo.novatechhp.vn/
 http://127.0.0.1:${API_PORT}/health
 ```
 
-Nginx is not managed by CI; it keeps proxying to the API container.
+The deployment user must be allowed to run `install`, `cp`, `nginx -t`, and
+`systemctl reload nginx` with `sudo -n` (without an interactive password).

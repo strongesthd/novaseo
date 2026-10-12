@@ -75,6 +75,18 @@ services:
         condition: service_healthy
     networks: [novaseo]
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${WEB_PORT:-3010}:80'
+    depends_on:
+      api:
+        condition: service_started
+    networks: [novaseo]
+
   worker:
     build:
       context: .

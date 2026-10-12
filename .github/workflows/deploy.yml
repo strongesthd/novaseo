@@ -102,15 +102,63 @@ jobs:
               exit 1
             fi
 
+            READY=0
             for attempt in $(seq 1 30); do
-              if curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3009/health >/dev/null; then
-                rm -rf "$UPLOAD_DIR"
-                echo 'Deploy done'
-                exit 0
+              if curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3009/health >/dev/null \
+                && curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3010/health >/dev/null \
+                && curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3010/ | grep -q 'id="root"'; then
+                READY=1
+                break
               fi
               sleep 3
             done
 
-            docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" ps
-            docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" logs --tail 100 api worker migrate || true
-            exit 1
+            if [ "$READY" -ne 1 ]; then
+              docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" ps
+              docker compose --project-name novaseo --env-file "$APP_DIR/.env" -f "$COMPOSE_FILE" logs --tail 100 api web worker migrate || true
+              exit 1
+            fi
+
+            NGINX_SITE=/etc/nginx/sites-available/novaseo.novatechhp.vn
+            test -f "$NGINX_SITE" || { echo "Missing Nginx site: $NGINX_SITE"; exit 1; }
+            NGINX_BACKUP=$(mktemp "$APP_DIR/.nginx-novaseo.XXXXXX")
+            if ! sudo -n cp "$NGINX_SITE" "$NGINX_BACKUP"; then
+              rm -f "$NGINX_BACKUP"
+              exit 1
+            fi
+            rollback_nginx() {
+              sudo -n install -m 644 "$NGINX_BACKUP" "$NGINX_SITE"
+              sudo -n nginx -t
+              sudo -n systemctl reload nginx
+              rm -f "$NGINX_BACKUP"
+            }
+            if ! sudo -n install -m 644 "$RELEASE_DIR/deploy/nginx-novaseo.conf" "$NGINX_SITE"; then
+              rollback_nginx
+              exit 1
+            fi
+            if ! sudo -n nginx -t; then
+              rollback_nginx
+              exit 1
+            fi
+            if ! sudo -n systemctl reload nginx; then
+              rollback_nginx
+              exit 1
+            fi
+
+            if ! curl --fail --silent --show-error --max-time 10 \
+              --resolve novaseo.novatechhp.vn:443:127.0.0.1 \
+              https://novaseo.novatechhp.vn/ | grep -q 'id="root"'; then
+              rollback_nginx
+              exit 1
+            fi
+            rm -f "$NGINX_BACKUP"
+
+            if ! curl --fail --silent --show-error --max-time 10 \
+              --resolve novaseo.novatechhp.vn:443:127.0.0.1 \
+              https://novaseo.novatechhp.vn/api/v1/auth/setup-status | grep -q '"hasOwner"'; then
+              echo 'Dashboard is live but auth API verification failed'
+              exit 1
+            fi
+
+            rm -rf "$UPLOAD_DIR"
+            echo 'Deploy done'

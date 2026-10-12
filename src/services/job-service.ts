@@ -21,5 +21,6 @@ export class JobService {
     }
     return { jobId: id, status: 'queued' };
   }
+  async list(tenantId: string) { return this.repository.list(tenantId); }
   async get(tenantId: string, id: string) { const job = await this.repository.find(tenantId, id); if (!job) throw Object.assign(new Error('JOB_NOT_FOUND'), { statusCode: 404 }); return job; }
 }
