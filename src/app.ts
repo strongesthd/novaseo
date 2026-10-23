@@ -9,6 +9,8 @@ import authRoutes from './routes/auth-routes.js';
 
 export function createApp() {
   const app = express();
+  const proxyHops = Number(process.env.TRUST_PROXY_HOPS);
+  app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 ? proxyHops : 'loopback');
   app.use(helmet());
   app.use(express.json({ limit: '2mb' }));
   app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));

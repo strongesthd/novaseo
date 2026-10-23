@@ -22,7 +22,7 @@ export async function retryWithBackoff<T>(
 
 function isRetryable(err: any): boolean {
   if (err.retryable === false) return false;
-  if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND') return true;
+  if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND' || err.message === 'OUTBOUND_TIMEOUT') return true;
   if (err.statusCode === 429 || err.statusCode === 503 || err.statusCode === 504) return true;
   return false;
 }

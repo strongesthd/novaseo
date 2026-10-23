@@ -1,55 +1,104 @@
 import { ContentRepository } from '../repositories/content-repository.js';
 import { ClusterRepository } from '../repositories/cluster-repository.js';
 import { ProjectRepository } from '../repositories/project-repository.js';
+import { LlmProvider, OpenAiCompatibleLlmProvider } from '../providers/llm-provider.js';
+import { checkContentQuality } from '../utils/content-quality-check.js';
+import { escapeHtml, renderMarkdownToHtml } from '../utils/html.js';
 
 export class ContentGenerationService {
-  constructor(private contents = new ContentRepository(), private clusters = new ClusterRepository(), private projects = new ProjectRepository()) {}
+  constructor(
+    private contents = new ContentRepository(),
+    private clusters = new ClusterRepository(),
+    private projects = new ProjectRepository(),
+    private provider: LlmProvider = new OpenAiCompatibleLlmProvider(),
+  ) {}
 
-  async generate(tenantId: string, input: { projectId: string; clusterId: string; format: 'html' | 'markdown'; minWords: number; generateShortVideoScripts: boolean; language: string }) {
+  async generate(tenantId: string, input: {
+    projectId: string;
+    clusterId: string;
+    format: 'html' | 'markdown';
+    minWords: number;
+    generateShortVideoScripts: boolean;
+    language: string;
+  }) {
+    if (!Number.isInteger(input.minWords) || input.minWords < 1500 || input.minWords > 5000) {
+      throw Object.assign(new Error('MIN_WORDS_OUT_OF_RANGE'), { statusCode: 400 });
+    }
     const project = await this.projects.findById(tenantId, input.projectId);
     if (!project) throw Object.assign(new Error('PROJECT_NOT_FOUND'), { statusCode: 404 });
     const cluster = await this.clusters.findById(tenantId, input.clusterId);
-    if (!cluster) throw Object.assign(new Error('CLUSTER_NOT_FOUND'), { statusCode: 404 });
-    const title = this.buildTitle(cluster.primary_keyword);
-    const markdown = this.buildContent(project, cluster, input.minWords);
-    const html = this.toHtml(title, markdown);
-    const quality = checkContentQuality({ title, markdown, primaryKeyword: cluster.primary_keyword });
-    if (!quality.passed) throw Object.assign(new Error('CONTENT_QUALITY_CHECK_FAILED'), { statusCode: 400, issues: quality.issues });
-    const scripts = input.generateShortVideoScripts ? this.buildScripts(cluster.primary_keyword, project) : [];
-    const content = await this.contents.create({ tenantId, projectId: input.projectId, clusterId: input.clusterId, title, slug: this.slugify(title), markdown, html, scripts, payload: { format: input.format, language: input.language, qualityIssues: quality.issues } });
-    return { contentId: content.id, title, wordCount: markdown.split(/\s+/).length, scripts: scripts.length, qualityIssues: quality.issues };
-  }
+    if (!cluster || cluster.project_id !== input.projectId) throw Object.assign(new Error('CLUSTER_NOT_FOUND'), { statusCode: 404 });
 
-  private buildTitle(keyword: string): string { return `${keyword.charAt(0).toUpperCase()}${keyword.slice(1)}: Hướng dẫn toàn diện ${new Date().getFullYear()}`; }
-
-  private buildContent(project: any, cluster: any, minWords: number): string {
-    const keyword = cluster.primary_keyword;
-    const brand = project.name;
-    const product = (project.brand_context?.products?.[0]) || keyword;
-    const sections = [ 'Tổng quan', 'Vì sao chủ đề này quan trọng', 'Tiêu chí lựa chọn', 'Hướng dẫn chi tiết', 'Sai lầm thường gặp', 'Kinh nghiệm thực tế', 'Câu hỏi thường gặp', 'Kết luận và CTA' ];
-    const paragraphs: string[] = [`# ${this.buildTitle(keyword)}`, ``, `Chủ đề **${keyword}** đang được người dùng ${project.target_audience?.region || 'Việt Nam'} quan tâm. ${brand} tổng hợp hướng dẫn thực chiến giúp bạn ra quyết định đúng và tối ưu hiệu quả.`];
-    let index = 0;
-    while (paragraphs.join(' ').split(/\s+/).length < minWords) {
-      const section = sections[index % sections.length];
-      paragraphs.push(``, `## ${section}`, ``, `${section} là yếu tố then chốt khi khai thác ${keyword}. Với sản phẩm ${product}, bạn nên tập trung vào chất lượng nội dung, trải nghiệm người dùng và mức độ phù hợp nhu cầu. Khi tối ưu ${keyword}, hãy phân tích từ khóa liên quan, đối thủ và hành vi tìm kiếm để xây dựng cấu trúc rõ ràng, hữu ích và đáng tin cậy cho ${brand}.`);
-      index++;
+    const generated = await this.provider.generateContent({
+      title: this.buildTitle(cluster.primary_keyword),
+      primaryKeyword: cluster.primary_keyword,
+      intent: cluster.intent,
+      language: input.language,
+      minWords: input.minWords,
+      generateShortVideoScripts: input.generateShortVideoScripts,
+      brandContext: project.brand_context ?? {},
+      targetAudience: project.target_audience ?? {},
+    });
+    const title = generated.title.trim();
+    const markdown = generated.markdown.trim();
+    const validFaq = Array.isArray(generated.faq) &&
+      generated.faq.length <= 20 &&
+      generated.faq.every((item) => typeof item?.question === 'string' && item.question.length <= 1000 &&
+        typeof item?.answer === 'string' && item.answer.length <= 5000);
+    const validScripts = Array.isArray(generated.scripts) && generated.scripts.length <= 3 &&
+      generated.scripts.every((script) => script && typeof script === 'object' && JSON.stringify(script).length <= 10_000);
+    if (!title || title.length > 180 || !markdown || markdown.length > 200_000 ||
+      typeof generated.metaDescription !== 'string' || !generated.metaDescription.trim() ||
+      !Array.isArray(generated.secondaryKeywords) || generated.secondaryKeywords.length < 1 ||
+      generated.secondaryKeywords.length > 10 ||
+      generated.secondaryKeywords.some((keyword) => typeof keyword !== 'string' || !keyword.trim() || keyword.length > 100) ||
+      typeof generated.cta !== 'string' ||
+      generated.cta.length > 2000 || !validFaq || !validScripts) {
+      throw Object.assign(new Error('CONTENT_GENERATION_INVALID'), { statusCode: 502 });
     }
-    return paragraphs.join('\n');
+    const wordCount = markdown.split(/\s+/).filter(Boolean).length;
+    if (wordCount < input.minWords) {
+      throw Object.assign(new Error('GENERATED_CONTENT_BELOW_MIN_WORDS'), { statusCode: 502, wordCount });
+    }
+    const scripts = input.generateShortVideoScripts ? generated.scripts.slice(0, 3) : [];
+    if (input.generateShortVideoScripts && scripts.length !== 3) {
+      throw Object.assign(new Error('CONTENT_GENERATION_INVALID_SCRIPTS'), { statusCode: 502 });
+    }
+    const description = generated.metaDescription.trim().slice(0, 300);
+    const html = `<!doctype html><html lang="${escapeHtml(input.language)}"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"></head><body>${renderMarkdownToHtml(markdown)}</body></html>`;
+    const quality = checkContentQuality({ title, markdown, primaryKeyword: cluster.primary_keyword });
+    if (!quality.passed) {
+      throw Object.assign(new Error('CONTENT_QUALITY_CHECK_FAILED'), { statusCode: 400, issues: quality.issues });
+    }
+    const content = await this.contents.create({
+      tenantId,
+      projectId: input.projectId,
+      clusterId: input.clusterId,
+      title,
+      slug: this.slugify(title),
+      markdown,
+      html,
+      scripts,
+      payload: {
+        format: input.format,
+        language: input.language,
+        seoTitle: title.slice(0, 180),
+        metaDescription: description,
+        focusKeyword: cluster.primary_keyword.slice(0, 100),
+        secondaryKeywords: generated.secondaryKeywords.map((keyword) => keyword.trim()).join(', ').slice(0, 300),
+        faq: generated.faq,
+        cta: generated.cta,
+        qualityIssues: quality.issues,
+      },
+    });
+    return { contentId: content.id, title, wordCount, scripts: scripts.length, qualityIssues: quality.issues };
   }
 
-  private toHtml(title: string, markdown: string): string {
-    const body = markdown.split('\n').map(line => line.startsWith('# ') ? `<h1>${line.slice(2)}</h1>` : line.startsWith('## ') ? `<h2>${line.slice(3)}</h2>` : line.trim() ? `<p>${line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>` : '').join('\n');
-    return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`;
+  private buildTitle(keyword: string): string {
+    return `${keyword}: hướng dẫn thực tế`;
   }
 
-  private buildScripts(keyword: string, project: any) {
-    return [
-      { platform: 'tiktok', hook: `Bạn đang tìm ${keyword}?`, scenes: [{ text: `Giới thiệu vấn đề về ${keyword}` }, { text: `Giải pháp từ ${project.name}` }], voiceOver: `Hôm nay ${project.name} sẽ chia sẻ về ${keyword}.`, onScreenText: keyword, cta: 'Theo dõi để xem thêm', durationSeconds: 30, hashtags: ['#seo', '#tiktok'] },
-      { platform: 'reels', hook: `3 điều về ${keyword}`, scenes: [{ text: `Điều 1: hiểu đúng ${keyword}` }, { text: 'Điều 2: tránh sai lầm' }], voiceOver: `Ba điều cần biết về ${keyword}.`, onScreenText: keyword, cta: 'Lưu lại ngay', durationSeconds: 25, hashtags: ['#reels', '#tips'] },
-      { platform: 'shorts', hook: `${keyword} trong 45 giây`, scenes: [{ text: 'Vấn đề' }, { text: 'Giải pháp' }], voiceOver: `Tóm tắt ${keyword} trong 45 giây.`, onScreenText: keyword, cta: 'Đăng ký kênh', durationSeconds: 45, hashtags: ['#shorts', '#howto'] }
-    ];
+  private slugify(value: string): string {
+    return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 140).replace(/-+$/g, '');
   }
-
-  private slugify(value: string): string { return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 }
-import { checkContentQuality } from '../utils/content-quality-check.js';

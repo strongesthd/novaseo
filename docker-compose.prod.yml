@@ -52,6 +52,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       QUEUE_CONCURRENCY: ${QUEUE_CONCURRENCY:-5}
+      TRUST_PROXY_HOPS: 1
     depends_on:
       postgres:
         condition: service_healthy

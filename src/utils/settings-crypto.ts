@@ -1,7 +1,8 @@
 import { encrypt, decrypt } from './crypto.js';
 
-const SECRET_FIELDS = ['password', 'appPassword', 'token', 'oauthToken', 'oauthRef', 'secret', 'secretRef', 'accessToken', 'refreshToken', 'apiKey'];
-const ENC_PREFIX = 'enc:v1:';
+const SECRET_FIELDS = ['password', 'appPassword', 'token', 'oauthToken', 'oauthRef', 'secret', 'secretRef', 'accessToken', 'refreshToken', 'apiKey', 'privateKey'];
+const ENC_PREFIX = 'enc:v2:';
+const LEGACY_PREFIX = 'enc:v1:';
 
 const isSecretKey = (key: string) => SECRET_FIELDS.some((field) => key.toLowerCase().includes(field.toLowerCase()));
 
@@ -12,7 +13,7 @@ export function encryptSettings(settings: Record<string, any> = {}): Record<stri
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       output[platform] = Object.fromEntries(
         Object.entries(value).map(([key, field]) => {
-          if (typeof field === 'string' && isSecretKey(key) && !field.startsWith(ENC_PREFIX)) {
+          if (typeof field === 'string' && isSecretKey(key) && !field.startsWith(ENC_PREFIX) && !field.startsWith(LEGACY_PREFIX)) {
             return [key, ENC_PREFIX + encrypt(field)];
           }
           return [key, field];
@@ -32,7 +33,10 @@ export function decryptSettings(settings: Record<string, any> = {}): Record<stri
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       output[platform] = Object.fromEntries(
         Object.entries(value).map(([key, field]) => {
-          if (typeof field === 'string' && field.startsWith(ENC_PREFIX)) return [key, decrypt(field.slice(ENC_PREFIX.length))];
+          if (typeof field === 'string' && (field.startsWith(ENC_PREFIX) || field.startsWith(LEGACY_PREFIX))) {
+            const prefix = field.startsWith(ENC_PREFIX) ? ENC_PREFIX : LEGACY_PREFIX;
+            return [key, decrypt(field.slice(prefix.length))];
+          }
           return [key, field];
         }),
       );

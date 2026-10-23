@@ -21,8 +21,8 @@ Request body:
   "toneOfVoice": "expert-friendly",
   "targetPlatforms": ["wordpress", "shopify", "tiktok", "youtube", "webhook"],
   "platformSettings": {
-    "wordpress": { "siteUrl": "https://example.com", "appPassword": "..." },
-    "shopify": { "storeUrl": "https://store.myshopify.com", "token": "..." },
+    "wordpress": { "siteUrl": "https://example.com", "username": "...", "appPassword": "..." },
+    "shopify": { "storeUrl": "https://store.myshopify.com", "accessToken": "...", "apiVersion": "YYYY-MM", "blogId": "123", "blogHandle": "news" },
     "tiktok": { "oauthToken": "..." },
     "youtube": { "oauthToken": "..." },
     "webhook": { "url": "https://hooks.example.com", "secret": "..." }
@@ -49,6 +49,10 @@ Request body:
 }
 ```
 `platform` bắt buộc và nhận một trong: `google | shopee | lazada | tiktok | youtube`.
+`seedKeywords` nhận từ 1 đến 20 mục, tối đa 120 ký tự mỗi mục; `limit` tối đa 200.
+Mining cần `platformSettings[platform].miningEndpoint` được cấu hình trong project.
+Endpoint nhận `{ platform, seeds, locale, country, limit }` và trả `{ "records": [{ "keyword": "...", "volume": 10, "competition": 0.2, "suggestions": [] }] }`.
+Không có provider thì job thất bại rõ ràng, không sinh số liệu giả.
 Response `201`:
 ```json
 { "data": { "jobId": "uuid", "status": "queued", "platform": "google" } }
@@ -78,6 +82,8 @@ Request body:
   "language": "vi"
 }
 ```
+`minWords` phải nằm trong khoảng 1.500-5.000. Content được tạo qua provider
+OpenAI-compatible cấu hình bằng `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL`.
 Response `201`: `{ "data": { "jobId": "uuid", "status": "queued" } }`.
 Response `400` khi format/cluster không hợp lệ; `500` khi không tạo được job.
 
@@ -102,11 +108,17 @@ Request body:
 }
 ```
 `targetPlatforms` là mảng bắt buộc các kênh muốn đăng, mỗi phần tử thuộc `wordpress | shopify | webhook | tiktok | youtube`.
+`scheduleAt`, nếu có, phải là ISO 8601 có timezone và nằm trong tương lai;
+job được đưa vào queue với delay, tối đa một năm. Có thể gửi header
+`Idempotency-Key` để retry cùng một thao tác. Kết quả `unknown` cần đối soát
+với nền tảng trước khi tạo key mới.
 Response `201`:
 ```json
 { "data": { "jobId": "uuid", "status": "queued", "targetPlatforms": ["wordpress", "shopify"] } }
 ```
 Response `400` khi mảng rỗng/platform không được hỗ trợ; `500` khi không enqueue được. Kết quả từng platform xem trong publish logs; lỗi một platform không làm mất kết quả các platform còn lại.
+WordPress, Shopify và webhook có adapter publish thật. TikTok/YouTube hiện
+trả lỗi cấu hình thay vì giả lập đăng thành công.
 
 ## 8. Polling trạng thái job bất đồng bộ
 ### `GET /api/v1/seo/jobs/:jobId`
@@ -135,3 +147,16 @@ Response `200`:
 `type` nhận một trong `keyword_mining | content_generation | publishing | indexing`. `status` nhận một trong `queued | processing | completed | failed`; `progress` là số nguyên từ 0 đến 100. `result` chỉ trả về object kết quả khi job `completed`. `error` chỉ trả về `{ "code": "...", "message": "..." }` khi job `failed`.
 
 Response `404` khi không tìm thấy `jobId` hoặc `jobId` không thuộc tenant hiện tại. Response `401/403` khi thiếu hoặc không có quyền với tenant; `500` khi truy vấn job thất bại.
+
+## 9. Xuất bản bài viết sang TRIA CAFE
+
+Trong `platformSettings.webhook` của project, cấu hình endpoint và secret dùng chung với biến môi trường `NOVASEO_WEBHOOK_SECRET` trên TRIA:
+
+```json
+{
+  "url": "https://triacafe.vn/api/integrations/novaseo/articles",
+  "secret": "<shared-secret>"
+}
+```
+
+NovaSEO gửi `POST` JSON và ký nguyên văn request body bằng HMAC-SHA256 trong header `X-NovaSEO-Signature`. Request bao gồm `contentId`, `title`, `seoTitle`, `metaDescription`, `focusKeyword`, `secondaryKeywords`, `slug`, `content` (HTML), `platform: "webhook"` và `visibility: "public"`. Tạo content sẽ sinh 3-8 từ khóa phụ ngoài từ khóa chính để phù hợp form SEO của TRIA. Webhook TRIA chỉ nhận bài công khai; yêu cầu đăng nháp/riêng tư bị NovaSEO từ chối trước khi gửi. TRIA xác minh chữ ký, lọc HTML, lưu bài ở trạng thái đã xuất bản và trả `article.link`; retry cùng `contentId` cập nhật bài hiện có thay vì tạo bản trùng. Slug đang được bài viết khác sử dụng trả HTTP `409`.

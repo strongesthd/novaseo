@@ -18,43 +18,42 @@ export class IndexingOrchestrationService {
     if (!content) throw Object.assign(new Error('CONTENT_NOT_FOUND'), { statusCode: 404 });
     const project = await this.projects.findById(tenantId, content.project_id);
     if (!project) throw Object.assign(new Error('PROJECT_NOT_FOUND'), { statusCode: 404 });
-
-    const settings = decryptSettings(project.platform_settings || {});
-    const results = [];
-
-    for (const engine of input.engines) {
-      for (const url of input.urls) {
-        try {
-          const indexer = IndexerFactory.create(engine);
-          const result = await retryWithBackoff(() => indexer.submit([url], settings[engine]), { maxRetries: 3, label: `indexing:${engine}` });
-          await this.logs.create({
-            tenantId,
-            projectId: content.project_id,
-            contentId: input.contentId,
-            engine,
-            url,
-            status: result.accepted ? 'submitted' : 'skipped',
-            accepted: result.accepted,
-            responseData: result.responseData,
-          });
-          results.push({ engine, url, status: result.accepted ? 'submitted' : 'skipped', accepted: result.accepted });
-        } catch (err: any) {
-          logger.error({ err, engine, url, contentId: input.contentId }, 'Indexing failed');
-          await this.logs.create({
-            tenantId,
-            projectId: content.project_id,
-            contentId: input.contentId,
-            engine,
-            url,
-            status: 'failed',
-            accepted: false,
-            responseData: { error: err.message },
-          });
-          results.push({ engine, url, status: 'failed', accepted: false, error: err.message });
-        }
-      }
+    const allowedUrls = new Set(await this.contents.listIndexableUrls(tenantId, input.contentId));
+    if (!input.urls.length || input.urls.some((url) => !allowedUrls.has(url))) {
+      throw Object.assign(new Error('INDEXING_URL_NOT_OWNED_BY_CONTENT'), { statusCode: 400 });
     }
 
+    const settings = decryptSettings(project.platform_settings || {});
+    const results = await Promise.all(input.engines.flatMap((engine) => input.urls.map(async (url) => {
+      try {
+        const indexer = IndexerFactory.create(engine);
+        const result = await retryWithBackoff(() => indexer.submit([url], settings[engine]), { maxRetries: 3, label: `indexing:${engine}` });
+        await this.logs.create({
+          tenantId,
+          projectId: content.project_id,
+          contentId: input.contentId,
+          engine,
+          url,
+          status: result.accepted ? 'submitted' : 'skipped',
+          accepted: result.accepted,
+          responseData: result.responseData,
+        });
+        return { engine, url, status: result.accepted ? 'submitted' : 'skipped', accepted: result.accepted };
+      } catch (err: any) {
+        logger.error({ code: err.code || 'INDEXING_FAILED', engine, url, contentId: input.contentId }, 'Indexing failed');
+        await this.logs.create({
+          tenantId,
+          projectId: content.project_id,
+          contentId: input.contentId,
+          engine,
+          url,
+          status: 'failed',
+          accepted: false,
+          responseData: { error: err.code || 'INDEXING_FAILED' },
+        });
+        return { engine, url, status: 'failed', accepted: false, error: err.code || 'INDEXING_FAILED' };
+      }
+    })));
     return { contentId: input.contentId, results };
   }
 }

@@ -1,3 +1,5 @@
+import { ProviderError } from '../utils/provider-error.js';
+
 export type IndexingEngine = 'google_indexing' | 'indexnow';
 
 export interface IndexingProvider {
@@ -8,8 +10,8 @@ export interface IndexingProvider {
 export class StaticIndexingProvider implements IndexingProvider {
   constructor(public readonly engine: IndexingEngine) {}
 
-  async submit(url: string): Promise<Record<string, unknown>> {
-    return { accepted: true, url, engine: this.engine, submittedAt: new Date().toISOString() };
+  async submit(_url: string): Promise<Record<string, unknown>> {
+    throw new ProviderError('INDEXING_PROVIDER_NOT_CONFIGURED', this.engine, false);
   }
 }
 

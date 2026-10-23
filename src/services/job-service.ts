@@ -5,7 +5,7 @@ import { Queue } from 'bullmq';
 export type JobType = 'keyword_mining' | 'content_generation' | 'publishing' | 'indexing';
 export class JobService {
   constructor(private repository = new JobRepository(), private queues: Partial<Record<JobType, Queue>> = {}) {}
-  async enqueue(tenantId: string, type: JobType, data: any) {
+  async enqueue(tenantId: string, type: JobType, data: any, options?: { delay?: number }) {
     const id = generateJobId();
     await this.repository.create(id, tenantId, type);
     const queue = this.queues[type];
@@ -14,7 +14,11 @@ export class JobService {
       throw Object.assign(new Error('QUEUE_NOT_CONFIGURED'), { statusCode: 503 });
     }
     try {
-      await queue.add(type, { ...data, jobId: id, tenantId }, { jobId: id, attempts: 4, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: 1000, removeOnFail: 5000 });
+      const delay = options?.delay ?? 0;
+      if (!Number.isSafeInteger(delay) || delay < 0 || delay > 365 * 24 * 60 * 60 * 1000) {
+        throw Object.assign(new Error('INVALID_JOB_DELAY'), { statusCode: 400 });
+      }
+      await queue.add(type, { ...data, jobId: id, tenantId }, { jobId: id, delay, attempts: 4, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: 1000, removeOnFail: 5000 });
     } catch (error) {
       await this.repository.delete(id, tenantId);
       throw error;

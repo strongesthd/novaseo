@@ -11,7 +11,8 @@ export function checkContentQuality(input: { title: string; html?: string; markd
 
   // Keyword stuffing
   if (input.primaryKeyword) {
-    const keywordCount = (text.match(new RegExp(input.primaryKeyword, 'gi')) || []).length;
+    const escapedKeyword = input.primaryKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const keywordCount = (text.match(new RegExp(escapedKeyword, 'gi')) || []).length;
     const density = (keywordCount / wordCount) * 100;
     if (density > 3) issues.push({ rule: 'KEYWORD_STUFFING', severity: 'warning', message: `Keyword density is ${density.toFixed(1)}%, recommended max 3%` });
   }

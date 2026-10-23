@@ -1,6 +1,8 @@
 import { startWorkers } from './queues/worker-factory.js';
 import { logger } from './utils/logger.js';
+import { assertEncryptionKey } from './utils/crypto.js';
 
+assertEncryptionKey();
 const workers = startWorkers();
 logger.info({ count: workers.length }, 'Workers started');
 

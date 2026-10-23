@@ -4,6 +4,7 @@ import { pool, query } from '../database/connection.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { rateLimitLogin } from '../middleware/rate-limit.js';
 import { createSessionToken } from '../utils/auth-token.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 
@@ -31,7 +32,7 @@ router.get('/setup-status', asyncHandler(async (_req, res) => {
   res.json({ data: { hasOwner: result.rows[0].hasOwner } });
 }));
 
-router.post('/setup', validate({
+router.post('/setup', rateLimitLogin, validate({
   body: credentialsSchema.extend({
     name: z.string().trim().min(1).max(120),
     workspace: z.string().trim().min(1).max(200),
@@ -75,7 +76,7 @@ router.post('/setup', validate({
   res.status(201).json({ data: { user, tenant: { id: tenantId, name: req.body.workspace } } });
 }));
 
-router.post('/login', validate({ body: credentialsSchema }), asyncHandler(async (req, res) => {
+router.post('/login', rateLimitLogin, validate({ body: credentialsSchema }), asyncHandler(async (req, res) => {
   const result = await query(
     `SELECT u.id, u.email, u.display_name AS "displayName", u.password_hash,
             array_agg(m.tenant_id::text ORDER BY m.created_at) AS "tenantIds"

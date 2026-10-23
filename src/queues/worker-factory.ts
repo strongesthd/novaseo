@@ -5,13 +5,17 @@ import { KeywordMiningService } from '../services/keyword-mining-service.js';
 import { ContentGenerationService } from '../services/content-generation-service.js';
 import { PublishingService } from '../services/publishing-service.js';
 import { IndexingOrchestrationService } from '../services/indexing-orchestration-service.js';
+import { JobService } from '../services/job-service.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
 const jobs = new JobRepository();
+const jobService = new JobService(jobs, queues);
 const mining = new KeywordMiningService();
 const generation = new ContentGenerationService();
-const publishing = new PublishingService();
+const publishing = new PublishingService(undefined, undefined, undefined, (tenantId, input) =>
+  jobService.enqueue(tenantId, 'indexing', { tenantId, input }),
+);
 const indexing = new IndexingOrchestrationService();
 
 async function processJob(type: string, job: Job<any>) {
@@ -23,12 +27,17 @@ async function processJob(type: string, job: Job<any>) {
     else if (type === 'content_generation') result = await generation.generate(data.tenantId, data.input);
     else if (type === 'publishing') result = await publishing.publish(data.tenantId, data.input);
     else if (type === 'indexing') result = await indexing.submit(data.tenantId, data.input);
-    else result = { accepted: true };
+    else throw Object.assign(new Error('UNSUPPORTED_JOB_TYPE'), { code: 'UNSUPPORTED_JOB_TYPE' });
     await jobs.update(data.jobId, 'completed', 100, result);
     return result;
   } catch (err: any) {
-    await jobs.update(data.jobId, 'failed', 100, undefined, { code: err.code || 'JOB_FAILED', message: err.message });
-    logger.error({ err, jobId: data.jobId, type }, 'Job failed');
+    const nonRetryable = err.retryable === false || (Number.isInteger(err.statusCode) && err.statusCode < 500);
+    if (nonRetryable) job.discard();
+    const exhausted = nonRetryable || (job.attemptsMade ?? 0) + 1 >= Number(job.opts.attempts ?? 1);
+    const failure = { code: err.code || 'JOB_FAILED', message: err.message };
+    await jobs.update(data.jobId, exhausted ? 'failed' : 'processing', exhausted ? 100 : 10, undefined, exhausted ? failure : undefined);
+    if (exhausted) logger.error({ code: failure.code, jobId: data.jobId, type }, 'Job failed');
+    else logger.warn({ code: failure.code, jobId: data.jobId, type, attempt: job.attemptsMade + 1 }, 'Job retry scheduled');
     throw err;
   }
 }

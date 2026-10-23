@@ -18,10 +18,11 @@ existing database and Redis volumes without clearing the application directory.
    ssh -p <ssh-port> <ssh-user>@<vps-host> 'chmod 600 /home/app/novaseo/.env'
    ```
 
-   Replace every placeholder before the first deploy. Keep the values of
-   `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, and `ENCRYPTION_KEY` on one
-   line. The deploy workflow quotes safe legacy values without changing their
-   contents and rejects ambiguous values.
+   Replace every placeholder before the first deploy. Generate `ENCRYPTION_KEY`
+   with `openssl rand -hex 32`; it must be exactly 64 hexadecimal characters.
+   Keep it stable and identical for the API and worker, or stored provider
+   credentials cannot be decrypted. The deploy workflow quotes safe legacy
+   values without changing their contents and rejects invalid encryption keys.
 3. Point `novaseo.novatechhp.vn` to the VPS. On this VPS, Cloudflare redirects
    HTTP to HTTPS, so the ACME challenge must be reachable on both ports during
    certificate issuance. Install the temporary bootstrap vhost, which uses the
@@ -77,3 +78,26 @@ http://127.0.0.1:${API_PORT}/health
 
 The deployment user must be allowed to run `install`, `cp`, `nginx -t`, and
 `systemctl reload nginx` with `sudo -n` (without an interactive password).
+
+## Provider Configuration
+
+Content generation requires `LLM_API_URL`, `LLM_API_KEY`, and `LLM_MODEL` in
+the runtime environment. The endpoint must implement the OpenAI-compatible
+chat-completions JSON response format.
+
+Keyword mining uses a configured adapter endpoint in the project's settings:
+`platformSettings[platform].miningEndpoint`. It receives JSON with `platform`,
+`seeds`, `locale`, `country`, and `limit`, and must return a `records` array
+containing keyword records. Optional `apiKey` values are encrypted at rest.
+No estimated volumes or synthetic suggestions are generated when a provider
+is missing.
+
+WordPress requires `siteUrl`, `username`, and `appPassword`. Shopify requires a
+`*.myshopify.com` `storeUrl`, `accessToken`, `apiVersion`, `blogId`, and
+`blogHandle`. Webhook publishing requires an HTTPS `url`; an optional `secret`
+signs requests. TikTok and YouTube publishing currently fail explicitly until
+their OAuth, media-upload, and platform approval flows are configured.
+
+IndexNow requires `apiKey` and a same-host HTTPS `keyLocation`. Google
+Indexing requires service-account `clientEmail` and `privateKey`. Outbound
+provider URLs must use HTTPS and resolve only to public IP addresses.

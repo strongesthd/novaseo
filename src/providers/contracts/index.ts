@@ -22,7 +22,15 @@ export interface KeywordMiner {
 export interface PublishResult { externalId: string; externalUrl?: string; responseData?: Record<string, unknown>; }
 export interface Publisher {
   readonly platform: PublishingPlatform;
-  publish(input: { title: string; html?: string; markdown?: string; slug?: string; payload?: Record<string, unknown>; credentials?: Record<string, unknown> }): Promise<PublishResult>;
+  publish(input: {
+    title: string;
+    html?: string;
+    markdown?: string;
+    slug?: string;
+    payload?: Record<string, unknown>;
+    credentials?: Record<string, unknown>;
+    idempotencyKey?: string;
+  }): Promise<PublishResult>;
 }
 
 export interface IndexResult { engine: IndexingEngine; accepted: boolean; responseData?: Record<string, unknown>; }

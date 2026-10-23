@@ -3,7 +3,9 @@ import { createApp } from './app.js';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { closeDatabaseConnection } from './database/connection.js';
+import { assertEncryptionKey } from './utils/crypto.js';
 
+assertEncryptionKey();
 const app = createApp();
 const server = http.createServer(app);
 

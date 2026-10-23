@@ -1,20 +1,23 @@
 import { Router } from 'express';
-import { createSeoControllers } from './seo-controllers.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { validate } from '../middleware/validate.js';
 import { z } from 'zod';
 import { IndexingOrchestrationService } from '../services/indexing-orchestration-service.js';
 import { InternalLinkerService } from '../services/internal-linker-service.js';
+import { rateLimitProvider } from '../middleware/rate-limit.js';
 
 export const createSeoRouter = () => {
   const router = Router();
-  const controllers = createSeoControllers();
   const indexing = new IndexingOrchestrationService();
   const linker = new InternalLinkerService();
-  router.post('/keywords/mine', controllers.mine);
-  router.post('/content/generate', controllers.generate);
-  router.post('/content/publish', controllers.publish);
-  router.post('/content/index', validate({ body: z.object({ contentId: z.string().uuid(), urls: z.array(z.string().url()).min(1), engines: z.array(z.enum(['google', 'indexnow'])).min(1) }) }), asyncHandler(async (req, res) => {
+  router.post('/content/index', rateLimitProvider, validate({
+    body: z.object({
+      contentId: z.string().uuid(),
+      urls: z.array(z.string().url()).min(1).max(100),
+      engines: z.array(z.enum(['google', 'indexnow'])).min(1).max(2)
+        .refine((items) => new Set(items).size === items.length, 'Engines must be unique.'),
+    }),
+  }), asyncHandler(async (req, res) => {
     const result = await indexing.submit(req.tenantId!, req.body);
     res.status(201).json({ data: result });
   }));

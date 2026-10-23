@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import pathlib
+import re
 import stat
 import sys
 import tempfile
@@ -52,6 +53,14 @@ def normalize(path):
     if missing:
         names = ", ".join(key.decode() for key in sorted(missing))
         raise ValueError(f"Missing runtime environment keys: {names}")
+
+    encryption_value = next(
+        line.split(b"=", 1)[1].strip().strip(b"'\"")
+        for line in output
+        if line.startswith(b"ENCRYPTION_KEY=")
+    )
+    if not re.fullmatch(rb"[a-fA-F0-9]{64}", encryption_value):
+        raise ValueError("ENCRYPTION_KEY must contain exactly 64 hexadecimal characters (32 bytes)")
 
     if not changed:
         return False

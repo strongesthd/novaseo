@@ -1,16 +1,26 @@
-import { LlmProvider, ContentGenerationInput, TemplateLlmProvider } from '../providers/llm-provider.js';
+import { ContentGenerationService } from './content-generation-service.js';
 
-export interface ContentGenerationRequest extends ContentGenerationInput {
+export interface ContentGenerationRequest {
   tenantId: string;
   projectId: string;
   clusterId: string;
+  format?: 'html' | 'markdown';
+  minWords?: number;
+  generateShortVideoScripts?: boolean;
+  language?: string;
 }
 
 export class ContentOrchestrationService {
-  constructor(private readonly provider: LlmProvider = new TemplateLlmProvider()) {}
+  constructor(private readonly service = new ContentGenerationService()) {}
 
-  async generate(input: ContentGenerationRequest) {
-    const generated = await this.provider.generateContent(input);
-    return { id: crypto.randomUUID(), tenantId: input.tenantId, projectId: input.projectId, clusterId: input.clusterId, ...generated, status: 'ready', createdAt: new Date().toISOString() };
+  generate(input: ContentGenerationRequest) {
+    return this.service.generate(input.tenantId, {
+      projectId: input.projectId,
+      clusterId: input.clusterId,
+      format: input.format ?? 'markdown',
+      minWords: input.minWords ?? 1500,
+      generateShortVideoScripts: input.generateShortVideoScripts ?? true,
+      language: input.language ?? 'vi',
+    });
   }
 }

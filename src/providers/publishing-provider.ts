@@ -1,3 +1,5 @@
+import { ProviderError } from '../utils/provider-error.js';
+
 export type PublishingPlatform = 'wordpress' | 'shopify' | 'webhook' | 'tiktok' | 'youtube';
 
 export interface PublishInput {
@@ -22,13 +24,8 @@ export interface PublishingProvider {
 export class DryRunPublishingProvider implements PublishingProvider {
   constructor(public readonly platform: PublishingPlatform) {}
 
-  async publish(input: PublishInput): Promise<PublishResult> {
-    const externalId = `${this.platform}-${Date.now()}`;
-    return {
-      externalId,
-      externalUrl: typeof input.payload?.url === 'string' ? input.payload.url : undefined,
-      responseData: { accepted: true, dryRun: true, title: input.title },
-    };
+  async publish(_input: PublishInput): Promise<PublishResult> {
+    throw new ProviderError('PUBLISHING_PROVIDER_NOT_CONFIGURED', this.platform, false);
   }
 }
 

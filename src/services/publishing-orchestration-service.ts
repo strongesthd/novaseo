@@ -1,4 +1,5 @@
-import { createPublishingProvider, PublishingPlatform } from '../providers/publishing-provider.js';
+import { PublishingService } from './publishing-service.js';
+import { PublishingPlatform } from '../providers/contracts/index.js';
 
 export interface PublishTarget {
   platform: PublishingPlatform;
@@ -6,23 +7,20 @@ export interface PublishTarget {
 }
 
 export class PublishingOrchestrationService {
-  private readonly logs: any[] = [];
+  constructor(private readonly service = new PublishingService()) {}
 
-  async publish(input: { tenantId: string; projectId: string; contentId: string; title: string; markdown?: string; html?: string; payload?: Record<string, unknown>; targets: PublishTarget[]; idempotencyKey: string }) {
-    const results = await Promise.all(input.targets.map(async (target) => {
-      const duplicate = this.logs.find((log) => log.contentId === input.contentId && log.platform === target.platform && log.idempotencyKey === input.idempotencyKey);
-      if (duplicate) return duplicate;
-      try {
-        const result = await createPublishingProvider(target.platform).publish({ title: input.title, markdown: input.markdown, html: input.html, payload: input.payload, options: target.options });
-        const log = { id: crypto.randomUUID(), tenantId: input.tenantId, projectId: input.projectId, contentId: input.contentId, platform: target.platform, idempotencyKey: input.idempotencyKey, status: 'published', ...result, createdAt: new Date().toISOString() };
-        this.logs.push(log);
-        return log;
-      } catch (error) {
-        const log = { id: crypto.randomUUID(), tenantId: input.tenantId, projectId: input.projectId, contentId: input.contentId, platform: target.platform, idempotencyKey: input.idempotencyKey, status: 'failed', errorMessage: error instanceof Error ? error.message : 'Publish failed', createdAt: new Date().toISOString() };
-        this.logs.push(log);
-        return log;
-      }
-    }));
-    return { results };
+  publish(input: {
+    tenantId: string;
+    contentId: string;
+    targets: PublishTarget[];
+    idempotencyKey: string;
+    publishOptions?: { visibility?: string; sendIndexing?: boolean };
+  }) {
+    return this.service.publish(input.tenantId, {
+      contentId: input.contentId,
+      targetPlatforms: input.targets.map((target) => target.platform),
+      idempotencyKey: input.idempotencyKey,
+      publishOptions: input.publishOptions,
+    });
   }
 }
