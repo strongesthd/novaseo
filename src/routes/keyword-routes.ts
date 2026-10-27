@@ -77,7 +77,7 @@ router.get('/clusters/:projectId', validate({
   params: z.object({ projectId: z.string().uuid() }),
   query: z.object({
     platform: z.enum(['google', 'shopee', 'lazada', 'tiktok', 'youtube']).optional(),
-    intent: z.enum(['informational', 'commercial', 'transactional', 'navigational']).optional(),
+    intent: z.enum(['informational', 'commercial', 'transactional', 'navigational', 'unknown']).optional(),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   }),

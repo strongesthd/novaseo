@@ -68,6 +68,15 @@ function jobFailureText(job: Job) {
   return job.error?.message || `Tác vụ ${job.jobId.slice(0, 8)} thất bại.`;
 }
 
+function clusterRelatedKeywords(cluster: Cluster) {
+  const primary = cluster.primaryKeyword.trim().toLocaleLowerCase();
+  return Array.from(new Map(
+    (cluster.clusterData?.keywords || [])
+      .filter((keyword) => keyword.trim() && keyword.trim().toLocaleLowerCase() !== primary)
+      .map((keyword) => [keyword.trim().toLocaleLowerCase(), keyword.trim()]),
+  ).values());
+}
+
 function App() {
   const [mode, setMode] = useState<AuthMode>('checking');
   const [user, setUser] = useState<User>();
@@ -742,6 +751,10 @@ function KeywordsPage({ tenantId, project, clusters, onStart, notify, onGenerate
     (!filter || `${cluster.primaryKeyword} ${cluster.clusterName}`.toLowerCase().includes(filter.toLowerCase())) &&
     (intent === 'all' || cluster.intent === intent),
   ), [clusters, filter, intent]);
+  const relatedKeywordCount = useMemo(
+    () => clusters.reduce((count, cluster) => count + clusterRelatedKeywords(cluster).length, 0),
+    [clusters],
+  );
 
   useEffect(() => {
     let active = true;
@@ -843,15 +856,19 @@ function KeywordsPage({ tenantId, project, clusters, onStart, notify, onGenerate
           </form>
         </section>
         <section className="panel keyword-results-panel">
-          <div className="panel-heading"><div><h3>Nhóm từ khóa</h3><p>{clusters.length} nhóm đã lưu trong {project.name}</p></div><div className="results-badge"><Hash size={14} /> {clusters.length}</div></div>
+          <div className="panel-heading"><div><h3>Kết quả nghiên cứu</h3><p>{clusters.length} chủ đề · {relatedKeywordCount} từ khóa gợi ý trong {project.name}</p></div><div className="results-badge"><Hash size={14} /> {clusters.length}</div></div>
+          <div className="keyword-explainer"><strong>Cách đọc kết quả</strong><span>Hạt giống là từ bạn nhập. Các thẻ bên dưới là gợi ý liên quan do nguồn trả về.</span><span>Ý định được ước lượng theo từ ngữ; “Chưa xác định” nghĩa là hệ thống không đoán được đáng tin cậy. “—” ở Volume nghĩa là nguồn không cung cấp lượt tìm kiếm.</span></div>
           <div className="table-toolbar">
             <div className="search-box"><Search size={15} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Tìm từ khóa" aria-label="Tìm từ khóa" /></div>
-            <select aria-label="Lọc theo intent" value={intent} onChange={(event) => setIntent(event.target.value)}><option value="all">Tất cả intent</option><option value="informational">Thông tin</option><option value="commercial">Thương mại</option><option value="transactional">Giao dịch</option><option value="navigational">Điều hướng</option></select>
+            <select aria-label="Lọc theo intent" value={intent} onChange={(event) => setIntent(event.target.value)}><option value="all">Tất cả ý định</option><option value="informational">Thông tin</option><option value="commercial">Cân nhắc mua</option><option value="transactional">Sẵn sàng mua</option><option value="navigational">Tìm thương hiệu/trang</option><option value="unknown">Chưa xác định</option></select>
           </div>
-          <div className="table-scroll"><table className="data-table keyword-table"><thead><tr><th>TỪ KHÓA CHÍNH</th><th>INTENT</th><th>NỀN TẢNG</th><th>VOLUME</th><th /></tr></thead><tbody>{filtered.map((cluster) => <tr key={cluster.id}><td><div className="keyword-primary"><strong>{cluster.primaryKeyword}</strong><small>{cluster.clusterData?.keywords?.length || 1} từ khóa liên quan</small></div></td><td><IntentPill intent={cluster.intent} /></td><td><ChannelList channels={[cluster.platform]} /></td><td><span className="muted-value">{cluster.clusterData?.volume ? cluster.clusterData.volume.toLocaleString('vi-VN') : '—'}</span></td><td><button className="icon-button" title="Tạo nội dung từ nhóm từ khóa" aria-label="Tạo nội dung" onClick={() => onGenerate(cluster)}><Wand2 size={16} /></button></td></tr>)}</tbody></table>
+          <div className="table-scroll"><table className="data-table keyword-table"><thead><tr><th>HẠT GIỐNG VÀ GỢI Ý</th><th>Ý ĐỊNH</th><th>NGUỒN</th><th>VOLUME</th><th /></tr></thead><tbody>{filtered.map((cluster) => {
+            const related = clusterRelatedKeywords(cluster);
+            return <tr key={cluster.id}><td><div className="keyword-primary"><strong>{cluster.primaryKeyword}</strong><small>Hạt giống / chủ đề gốc</small>{related.length ? <div className="keyword-related">{related.slice(0, 5).map((keyword) => <span key={keyword}>{keyword}</span>)}{related.length > 5 && <span>+{related.length - 5} từ khóa</span>}</div> : <small>Chưa có gợi ý liên quan được lưu</small>}</div></td><td><IntentPill intent={cluster.intent} /></td><td><span className="keyword-source">{cluster.clusterData?.source || channelLabels[cluster.platform] || cluster.platform}</span></td><td><span className="muted-value">{typeof cluster.clusterData?.volume === 'number' ? cluster.clusterData.volume.toLocaleString('vi-VN') : '—'}</span></td><td><button className="icon-button" title="Tạo nội dung từ nhóm từ khóa" aria-label="Tạo nội dung" onClick={() => onGenerate(cluster)}><Wand2 size={16} /></button></td></tr>;
+          })}</tbody></table>
             {!filtered.length && <EmptyInline icon={<Hash size={20} />} title={clusters.length ? 'Không tìm thấy từ khóa' : 'Chưa có dữ liệu từ khóa'} action={clusters.length ? undefined : 'Thêm từ khóa hạt giống ở bên trái'} onClick={clusters.length ? undefined : undefined} />}
           </div>
-          <div className="panel-footnote"><ShieldCheck size={14} /> {filtered.length} / {clusters.length} nhóm từ khóa · Volume chỉ hiển thị khi provider trả dữ liệu.</div>
+          <div className="panel-footnote"><ShieldCheck size={14} /> Hiển thị {filtered.length} / {clusters.length} chủ đề. Chạy lại cùng hạt giống sẽ cập nhật nhóm hiện có và gộp gợi ý trùng.</div>
         </section>
       </div>
       <section className="info-band"><div className="info-icon"><Sparkles size={17} /></div><div><strong>Biến insight thành nội dung</strong><p>Chọn một nhóm từ khóa để bắt đầu brief và tạo bài viết trong đúng dự án.</p></div><button className="text-button" onClick={() => navigate('content')}>Thư viện nội dung <ArrowRight size={14} /></button></section>
@@ -1110,7 +1127,7 @@ function ChannelList({ channels }: { channels: string[] }) {
 }
 
 function IntentPill({ intent }: { intent: string }) {
-  const label = ({ informational: 'Thông tin', commercial: 'Thương mại', transactional: 'Giao dịch', navigational: 'Điều hướng' } as Record<string, string>)[intent] || intent;
+  const label = ({ informational: 'Thông tin', commercial: 'Cân nhắc mua', transactional: 'Sẵn sàng mua', navigational: 'Tìm thương hiệu/trang', unknown: 'Chưa xác định' } as Record<string, string>)[intent] || intent;
   return <span className={`intent-pill intent-${intent}`}>{label}</span>;
 }
 

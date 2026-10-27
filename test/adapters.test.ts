@@ -72,13 +72,13 @@ describe('GenericKeywordMiner', () => {
       expect.objectContaining({
         keyword: 'cà phê hạt rang',
         source: 'Google Autocomplete via SerpApi',
-        metadata: { provider: 'serpapi-google-autocomplete' },
+        metadata: { provider: 'serpapi-google-autocomplete', seedKeyword: 'cà phê hạt' },
         suggestions: [],
       }),
       expect.objectContaining({
         keyword: 'cà phê hạt ngon',
         source: 'Google Autocomplete via SerpApi',
-        metadata: { provider: 'serpapi-google-autocomplete' },
+        metadata: { provider: 'serpapi-google-autocomplete', seedKeyword: 'cà phê hạt' },
         suggestions: [],
       }),
     ]);

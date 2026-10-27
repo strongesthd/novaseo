@@ -41,6 +41,8 @@ describe('database pagination and publish claims', () => {
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0].match(/\(\$1,/g)).toHaveLength(1);
     expect(query.mock.calls[0][0]).toContain('($8,$9,$10,$11,$12,$13,$14::jsonb)');
+    expect(query.mock.calls[0][0]).toContain('ON CONFLICT (tenant_id,project_id,platform,(lower(btrim(primary_keyword))))');
+    expect(query.mock.calls[0][0]).toContain('jsonb_array_elements_text');
     expect(query.mock.calls[0][1]).toHaveLength(14);
   });
 

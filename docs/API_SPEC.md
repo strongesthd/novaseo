@@ -69,7 +69,7 @@ Response `400` khi platform/params sai; `500` khi không enqueue được job.
 
 ## 5. Lấy keyword clusters
 ### `GET /api/v1/seo/keywords/clusters/:projectId`
-Query params: `platform`, `intent`, `page`, `limit`, `sort`.
+Query params: `platform`, `intent`, `page`, `limit`, `sort`. `intent` nhận `informational | commercial | transactional | navigational | unknown`; `unknown` biểu thị hệ thống không suy luận được ý định một cách đáng tin cậy.
 Response `200`:
 ```json
 { "data": [{ "id": "uuid", "platform": "tiktok", "clusterName": "...", "primaryKeyword": "...", "intent": "commercial", "clusterData": {} }], "meta": { "page": 1, "limit": 20, "total": 1 } }

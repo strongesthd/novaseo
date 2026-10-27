@@ -102,7 +102,7 @@ export class GenericKeywordMiner implements KeywordMiner {
             locale: input.locale,
             country: input.country,
             suggestions: [],
-            metadata: { provider: 'serpapi-google-autocomplete' },
+            metadata: { provider: 'serpapi-google-autocomplete', seedKeyword: seed },
           });
           if (records.length >= input.limit) return records;
         }

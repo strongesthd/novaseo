@@ -31,20 +31,42 @@ export class KeywordMiningService {
   private cluster(records: KeywordRecord[]) {
     const map = new Map<string, { primaryKeyword: string; intent: string; keywords: string[]; volume?: number; competition?: number; source: string }>();
     for (const record of records) {
-      const root = record.keyword.split(/\s+/).slice(0, 2).join(' ').toLowerCase();
-      const intent = this.detectIntent(record.keyword);
-      const existing = map.get(root);
-      if (existing) { existing.keywords.push(record.keyword); }
-      else { map.set(root, { primaryKeyword: record.keyword, intent, keywords: [record.keyword], volume: record.volume, competition: record.competition, source: record.source }); }
+      const seedKeyword = record.metadata.seedKeyword;
+      const primaryKeyword = typeof seedKeyword === 'string' && seedKeyword.trim()
+        ? seedKeyword.trim()
+        : record.keyword.trim();
+      const key = primaryKeyword.toLocaleLowerCase();
+      const intent = this.detectIntent(primaryKeyword);
+      const existing = map.get(key);
+      const relatedKeywords = [record.keyword, ...record.suggestions]
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => keyword && keyword.toLocaleLowerCase() !== key);
+      if (existing) {
+        existing.keywords = Array.from(new Map(
+          [...existing.keywords, ...relatedKeywords].map((keyword) => [keyword.toLocaleLowerCase(), keyword]),
+        ).values());
+        existing.volume ??= record.volume;
+        existing.competition ??= record.competition;
+      } else {
+        map.set(key, {
+          primaryKeyword,
+          intent,
+          keywords: Array.from(new Map(relatedKeywords.map((keyword) => [keyword.toLocaleLowerCase(), keyword])).values()),
+          volume: record.volume,
+          competition: record.competition,
+          source: record.source,
+        });
+      }
     }
     return Array.from(map.values());
   }
 
   private detectIntent(keyword: string): string {
-    const value = keyword.toLowerCase();
-    if (/(mua|giá|order|deal|khuyến mãi)/.test(value)) return 'transactional';
-    if (/(tốt nhất|review|so sánh|top)/.test(value)) return 'commercial';
-    if (/(là gì|hướng dẫn|cách|tại sao)/.test(value)) return 'informational';
-    return 'navigational';
+    const value = keyword.toLocaleLowerCase();
+    if (/(mua|giá|order|deal|khuyến mãi|đặt hàng|đặt mua|giảm giá)/.test(value)) return 'transactional';
+    if (/(tốt nhất|review|đánh giá|so sánh|top|nên chọn)/.test(value)) return 'commercial';
+    if (/(là gì|hướng dẫn|cách|tại sao|bao gồm những gì)/.test(value)) return 'informational';
+    if (/(chính hãng|website|trang chủ)/.test(value)) return 'navigational';
+    return 'unknown';
   }
 }

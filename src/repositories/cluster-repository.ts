@@ -33,7 +33,42 @@ export class ClusterRepository {
     await query(
       `INSERT INTO seo_keyword_clusters
         (tenant_id,project_id,platform,cluster_name,primary_keyword,intent,cluster_data)
-       VALUES ${tuples.join(',')}`,
+       VALUES ${tuples.join(',')}
+       ON CONFLICT (tenant_id,project_id,platform,(lower(btrim(primary_keyword))))
+       DO UPDATE SET
+         cluster_name = EXCLUDED.cluster_name,
+         primary_keyword = EXCLUDED.primary_keyword,
+         intent = EXCLUDED.intent,
+         cluster_data = jsonb_set(
+           jsonb_set(
+             jsonb_set(
+               seo_keyword_clusters.cluster_data || EXCLUDED.cluster_data,
+               '{keywords}',
+               COALESCE((
+                 SELECT jsonb_agg(DISTINCT keyword)
+                   FROM jsonb_array_elements_text(
+                     COALESCE(seo_keyword_clusters.cluster_data->'keywords', '[]'::jsonb) ||
+                     COALESCE(EXCLUDED.cluster_data->'keywords', '[]'::jsonb)
+                   ) AS related(keyword)
+               ), '[]'::jsonb),
+               true
+             ),
+             '{volume}',
+             COALESCE(
+               NULLIF(EXCLUDED.cluster_data->'volume', 'null'::jsonb),
+               seo_keyword_clusters.cluster_data->'volume',
+               'null'::jsonb
+             ),
+             true
+           ),
+           '{competition}',
+           COALESCE(
+             NULLIF(EXCLUDED.cluster_data->'competition', 'null'::jsonb),
+             seo_keyword_clusters.cluster_data->'competition',
+             'null'::jsonb
+           ),
+           true
+         )`,
       values,
     );
   }

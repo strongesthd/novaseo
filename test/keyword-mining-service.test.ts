@@ -47,6 +47,54 @@ describe('KeywordMiningService', () => {
     expect(createMiner).toHaveBeenCalledWith('google');
   });
 
+  it('groups autocomplete suggestions by seed and removes repeated suggestions', async () => {
+    const clusters = new FakeClusterRepository();
+    const createMiner = vi.fn(() => ({
+      platform: 'google',
+      async mine() {
+        return [
+          {
+            keyword: 'cà phê hạt rang',
+            platform: 'google',
+            source: 'Google Autocomplete via SerpApi',
+            suggestions: [],
+            metadata: { seedKeyword: 'cà phê hạt' },
+          },
+          {
+            keyword: 'cà phê hạt ngon',
+            platform: 'google',
+            source: 'Google Autocomplete via SerpApi',
+            suggestions: [],
+            metadata: { seedKeyword: 'cà phê hạt' },
+          },
+          {
+            keyword: 'cà phê hạt rang',
+            platform: 'google',
+            source: 'Google Autocomplete via SerpApi',
+            suggestions: [],
+            metadata: { seedKeyword: 'cà phê hạt' },
+          },
+        ];
+      },
+    }));
+    const projects = { async findById() { return { platform_settings: {} }; } };
+    const service = new KeywordMiningService(clusters as any, projects as any, createMiner as any);
+
+    const result = await service.mine('tenant-1', 'project-1', 'google', ['cà phê hạt'], 'vi-VN', 'VN', 10);
+
+    expect(result).toMatchObject({ total: 3, clusters: 1 });
+    expect(clusters.rows).toHaveLength(1);
+    expect(clusters.rows[0]).toMatchObject({
+      primaryKeyword: 'cà phê hạt',
+      clusterName: 'cà phê hạt',
+      intent: 'unknown',
+      clusterData: {
+        keywords: ['cà phê hạt rang', 'cà phê hạt ngon'],
+        source: 'Google Autocomplete via SerpApi',
+      },
+    });
+  });
+
   it('does not enqueue or mine for a project outside the tenant', async () => {
     const clusters = new FakeClusterRepository();
     const createMiner = vi.fn();
