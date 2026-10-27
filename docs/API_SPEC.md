@@ -59,7 +59,7 @@ Request body:
 `seedKeywords` nhận từ 1 đến 20 mục, tối đa 120 ký tự mỗi mục; `limit` tối đa 200.
 Mining cần `platformSettings[platform].miningEndpoint` được cấu hình trong project.
 Endpoint nhận `{ platform, seeds, locale, country, limit }` và trả `{ "records": [{ "keyword": "...", "volume": 10, "competition": 0.2, "suggestions": [] }] }`.
-Không có provider thì job thất bại rõ ràng, không sinh số liệu giả.
+`miningEndpoint` và API key (nếu cần) được cấu hình trong mục Tích hợp của project; API key được mã hóa khi lưu. Thiếu endpoint trả `400 MINING_PROVIDER_NOT_CONFIGURED` trước khi enqueue. Không có provider thì hệ thống không sinh số liệu giả.
 Response `201`:
 ```json
 { "data": { "jobId": "uuid", "status": "queued", "platform": "google" } }

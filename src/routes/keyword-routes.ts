@@ -7,6 +7,7 @@ import { ClusterRepository } from '../repositories/cluster-repository.js';
 import { queues } from '../queues/queues.js';
 import { rateLimitProvider } from '../middleware/rate-limit.js';
 import { ProjectRepository } from '../repositories/project-repository.js';
+import { decryptSettings } from '../utils/settings-crypto.js';
 
 const router = Router();
 const jobs = new JobService(undefined, queues);
@@ -28,6 +29,17 @@ router.post('/mine', rateLimitProvider, validate({ body: mineSchema }), asyncHan
   const project = await projects.findById(req.tenantId!, body.projectId);
   if (!project) {
     res.status(404).json({ error: { code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' } });
+    return;
+  }
+  const settings = decryptSettings(project.platform_settings || {});
+  const endpoint = settings[body.platform]?.miningEndpoint;
+  if (typeof endpoint !== 'string' || !endpoint.trim()) {
+    res.status(400).json({
+      error: {
+        code: 'MINING_PROVIDER_NOT_CONFIGURED',
+        message: `Chưa cấu hình nguồn dữ liệu cho ${body.platform}. Vào Tích hợp → Nguồn nghiên cứu từ khóa để cấu hình.`,
+      },
+    });
     return;
   }
   const result = await jobs.enqueue(req.tenantId!, 'keyword_mining', { tenantId: req.tenantId, projectId: body.projectId, platform: body.platform, seeds: body.seedKeywords, locale: body.locale, country: body.country, limit: body.limit });

@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -43,6 +43,22 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : 'Có lỗi xảy ra. Vui lòng thử lại.';
 }
 
+function jobFailureText(job: Job) {
+  if (job.error?.code === 'MINING_PROVIDER_NOT_CONFIGURED') {
+    return 'Chưa cấu hình nguồn dữ liệu cho nền tảng này. Vào Tích hợp → Nguồn nghiên cứu từ khóa để cấu hình trước khi thử lại.';
+  }
+  if (job.error?.code === 'MINING_INVALID_RESPONSE') {
+    return 'Nguồn dữ liệu trả về sai định dạng. Kiểm tra endpoint để trả JSON có trường records chứa các keyword.';
+  }
+  if (job.error?.code === 'HTTP_401' || job.error?.code === 'HTTP_403') {
+    return 'Nguồn dữ liệu từ chối truy cập. Kiểm tra API key trong phần Tích hợp.';
+  }
+  if (job.error?.code === 'HTTP_429') {
+    return 'Nguồn dữ liệu đang giới hạn yêu cầu. Hãy đợi một lúc rồi thử lại.';
+  }
+  return job.error?.message || `Tác vụ ${job.jobId.slice(0, 8)} thất bại.`;
+}
+
 function App() {
   const [mode, setMode] = useState<AuthMode>('checking');
   const [user, setUser] = useState<User>();
@@ -60,6 +76,8 @@ function App() {
   const [modal, setModal] = useState<'project' | 'rename-project' | 'delete-project'>();
   const [managedProject, setManagedProject] = useState<Project>();
   const [apiOnline, setApiOnline] = useState<boolean>();
+  const knownJobStatuses = useRef(new Map<string, Job['status']>());
+  const pollErrorNotified = useRef(false);
   const selectedProject = projects.find((item) => item.id === projectId);
 
   const notify = useCallback((message: string, kind: ToastKind = 'success') => {
@@ -130,13 +148,24 @@ function App() {
     setActiveTenant(tenantId);
   }, [tenantId, user]);
 
+  const updateJobs = useCallback((nextJobs: Job[]) => {
+    for (const job of nextJobs) {
+      const previousStatus = knownJobStatuses.current.get(job.jobId);
+      if (job.status === 'failed' && (previousStatus === 'queued' || previousStatus === 'processing')) {
+        notify(jobFailureText(job), 'error');
+      }
+      knownJobStatuses.current.set(job.jobId, job.status);
+    }
+    setJobs(nextJobs);
+  }, [notify]);
+
   const refreshWorkspace = useCallback(async (preferredProjectId?: string) => {
     if (mode !== 'app' || !tenantId) return;
     setLoadingWorkspace(true);
     try {
       const [projectResponse, jobResponse] = await Promise.all([api.projects(), api.jobs()]);
       setProjects(projectResponse.data);
-      setJobs(jobResponse.data);
+      updateJobs(jobResponse.data);
       const requestedId = preferredProjectId || projectId;
       const currentId = projectResponse.data.some((item) => item.id === requestedId)
         ? requestedId
@@ -158,7 +187,7 @@ function App() {
     } finally {
       setLoadingWorkspace(false);
     }
-  }, [mode, notify, projectId, tenantId]);
+  }, [mode, notify, projectId, tenantId, updateJobs]);
 
   useEffect(() => {
     if (mode === 'app') void refreshWorkspace();
@@ -166,19 +195,43 @@ function App() {
 
   useEffect(() => {
     if (mode !== 'app' || !jobs.some((job) => job.status === 'queued' || job.status === 'processing')) return;
-    const timer = window.setInterval(() => {
-      void api.jobs().then((response) => {
-        setJobs(response.data);
-        if (projectId) {
-          Promise.all([api.clusters(projectId), api.contents(projectId)]).then(([clusterResponse, contentResponse]) => {
-            setClusters(clusterResponse.data);
-            setContents(contentResponse.data);
-          }).catch(() => undefined);
+    const poll = async () => {
+      try {
+        const response = await api.jobs();
+        const previousStatuses = new Map(knownJobStatuses.current);
+        updateJobs(response.data);
+        pollErrorNotified.current = false;
+        const miningCompleted = response.data.some((job) =>
+          job.type === 'keyword_mining' &&
+          job.status === 'completed' &&
+          (previousStatuses.get(job.jobId) === 'queued' || previousStatuses.get(job.jobId) === 'processing'),
+        );
+        if (miningCompleted && projectId) {
+          try {
+            const result = await api.clusters(projectId);
+            setClusters(result.data);
+            const completedJob = response.data.find((job) =>
+              job.type === 'keyword_mining' &&
+              job.status === 'completed' &&
+              (previousStatuses.get(job.jobId) === 'queued' || previousStatuses.get(job.jobId) === 'processing'),
+            );
+            if (completedJob?.result?.clusters === 0) {
+              notify('Nguồn dữ liệu không trả về từ khóa nào. Kiểm tra từ khóa hạt giống hoặc cấu hình provider.', 'error');
+            }
+          } catch (error) {
+            notify(`Nghiên cứu đã hoàn tất nhưng không tải được kết quả: ${errorText(error)}`, 'error');
+          }
         }
-      }).catch(() => undefined);
-    }, 2500);
+      } catch (error) {
+        if (!pollErrorNotified.current) {
+          notify(`Không kiểm tra được trạng thái tác vụ: ${errorText(error)}`, 'error');
+          pollErrorNotified.current = true;
+        }
+      }
+    };
+    const timer = window.setInterval(() => { void poll(); }, 2500);
     return () => window.clearInterval(timer);
-  }, [jobs, mode, projectId]);
+  }, [jobs, mode, notify, projectId, updateJobs]);
 
   const onTenantChange = (id: string) => {
     setTenantId(id);
@@ -186,6 +239,7 @@ function App() {
     setProjects([]);
     setClusters([]);
     setContents([]);
+    knownJobStatuses.current.clear();
   };
 
   const onAuthenticated = async () => {
@@ -201,6 +255,7 @@ function App() {
     setMode('login');
     setProjects([]);
     setJobs([]);
+    knownJobStatuses.current.clear();
   };
 
   const navigate = (next: Screen) => {
@@ -210,11 +265,22 @@ function App() {
 
   const startJob = async (action: () => Promise<unknown>, done: string) => {
     try {
-      await action();
+      const result = await action();
+      let startedJobId: string | undefined;
+      if (result && typeof result === 'object' && 'data' in result) {
+        const data = (result as { data?: { jobId?: unknown; status?: unknown } }).data;
+        if (typeof data?.jobId === 'string' && (data.status === 'queued' || data.status === 'processing')) {
+          startedJobId = data.jobId;
+          knownJobStatuses.current.set(data.jobId, data.status);
+        }
+      }
       await refreshWorkspace();
+      if (startedJobId && knownJobStatuses.current.get(startedJobId) === 'failed') return false;
       notify(done);
+      return true;
     } catch (error) {
       notify(errorText(error), 'error');
+      return false;
     }
   };
 
@@ -318,7 +384,7 @@ function App() {
             onRename={(project) => { setManagedProject(project); setModal('rename-project'); }}
             onDelete={(project) => { setManagedProject(project); setModal('delete-project'); }}
           />}
-          {screen === 'keywords' && <KeywordsPage project={selectedProject} clusters={clusters} onStart={startJob} onGenerate={(cluster) => {
+          {screen === 'keywords' && <KeywordsPage key={`${tenantId}:${selectedProject?.id || ''}`} tenantId={tenantId} project={selectedProject} clusters={clusters} onStart={startJob} notify={notify} onGenerate={(cluster) => {
             if (!selectedProject) { notify('Hãy tạo dự án trước.', 'error'); return; }
             void startJob(() => api.generate({ projectId: selectedProject.id, clusterId: cluster.id, format: 'markdown', minWords: 1500, generateShortVideoScripts: true, targetPlatforms: selectedProject.targetPlatforms, language: 'vi' }), 'Đã đưa yêu cầu tạo nội dung vào hàng đợi');
             navigate('content');
@@ -648,8 +714,10 @@ function ProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   );
 }
 
-function KeywordsPage({ project, clusters, onStart, onGenerate, navigate }: {
-  project?: Project; clusters: Cluster[]; onStart: (action: () => Promise<unknown>, done: string) => void;
+function KeywordsPage({ tenantId, project, clusters, onStart, notify, onGenerate, navigate }: {
+  tenantId: string; project?: Project; clusters: Cluster[];
+  onStart: (action: () => Promise<unknown>, done: string) => Promise<boolean>;
+  notify: (message: string, kind?: ToastKind) => void;
   onGenerate: (cluster: Cluster) => void; navigate: (screen: Screen) => void;
 }) {
   const [seeds, setSeeds] = useState('');
@@ -657,18 +725,68 @@ function KeywordsPage({ project, clusters, onStart, onGenerate, navigate }: {
   const [limit, setLimit] = useState(100);
   const [filter, setFilter] = useState('');
   const [intent, setIntent] = useState('all');
+  const [draftReady, setDraftReady] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const cacheKey = `novaseo-keyword-research:${tenantId}:${project?.id || 'none'}`;
   const filtered = useMemo(() => clusters.filter((cluster) =>
     (!filter || `${cluster.primaryKeyword} ${cluster.clusterName}`.toLowerCase().includes(filter.toLowerCase())) &&
     (intent === 'all' || cluster.intent === intent),
   ), [clusters, filter, intent]);
 
-  const submit = (event: FormEvent) => {
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const draft = JSON.parse(cached) as { seeds?: unknown; platform?: unknown; limit?: unknown };
+        if (typeof draft.seeds === 'string') setSeeds(draft.seeds);
+        if (typeof draft.platform === 'string' && miningChannels.includes(draft.platform)) setPlatform(draft.platform);
+        if (typeof draft.limit === 'number' && Number.isInteger(draft.limit)) setLimit(Math.min(200, Math.max(1, draft.limit)));
+      }
+    } catch (error) {
+      notify(`Không khôi phục được bản nháp nghiên cứu từ khóa: ${errorText(error)}`, 'error');
+    } finally {
+      setDraftReady(true);
+    }
+  }, [cacheKey, notify]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify({ seeds, platform, limit }));
+    } catch (error) {
+      notify(`Không lưu được bản nháp nghiên cứu từ khóa: ${errorText(error)}`, 'error');
+    }
+  }, [cacheKey, draftReady, limit, notify, platform, seeds]);
+
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!project) return;
     const seedKeywords = seeds.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean);
-    if (!seedKeywords.length) return;
-    void onStart(() => api.mine({ projectId: project.id, seedKeywords, platform, locale: 'vi-VN', country: 'VN', limit }), 'Đã bắt đầu nghiên cứu từ khóa');
-    setSeeds('');
+    if (!seedKeywords.length) {
+      notify('Nhập ít nhất một từ khóa hạt giống trước khi nghiên cứu.', 'error');
+      return;
+    }
+    if (seedKeywords.length > 20 || seedKeywords.some((seed) => seed.length > 120)) {
+      notify('Nhập tối đa 20 từ khóa, mỗi từ khóa không quá 120 ký tự.', 'error');
+      return;
+    }
+    if (new Set(seedKeywords.map((seed) => seed.toLowerCase())).size !== seedKeywords.length) {
+      notify('Danh sách có từ khóa bị lặp. Hãy xóa từ khóa trùng trước khi tiếp tục.', 'error');
+      return;
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      notify('Số lượng kết quả phải từ 1 đến 200.', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onStart(
+        () => api.mine({ projectId: project.id, seedKeywords, platform, locale: 'vi-VN', country: 'VN', limit }),
+        'Đã đưa yêu cầu nghiên cứu vào hàng đợi. Kết quả sẽ xuất hiện khi xử lý xong.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!project) return <EmptyState icon={<Target size={25} />} title="Chưa có dự án để nghiên cứu" description="Tạo dự án trước để lưu nhóm từ khóa đúng workspace." action="Mở dự án" onClick={() => navigate('projects')} />;
@@ -681,10 +799,10 @@ function KeywordsPage({ project, clusters, onStart, onGenerate, navigate }: {
           <form onSubmit={submit} className="stack-form">
             <Field label="Dự án"><div className="static-select"><FolderKanban size={15} /><span>{project.name}</span><ChevronDown size={14} /></div></Field>
             <Field label="Nền tảng"><select value={platform} onChange={(event) => setPlatform(event.target.value)}>{miningChannels.map((channel) => <option key={channel} value={channel}>{channelLabels[channel]}</option>)}</select></Field>
-            <Field label="Từ khóa hạt giống"><textarea required rows={5} value={seeds} onChange={(event) => setSeeds(event.target.value)} placeholder={'nghiên cứu từ khóa\nseo website\ntối ưu nội dung'} /><small className="field-hint">Mỗi dòng một cụm từ khóa</small></Field>
-            <Field label="Số lượng tối đa"><div className="number-control"><button type="button" onClick={() => setLimit(Math.max(10, limit - 10))} aria-label="Giảm số lượng">−</button><input type="number" min={1} max={500} value={limit} onChange={(event) => setLimit(Number(event.target.value))} /><button type="button" onClick={() => setLimit(Math.min(500, limit + 10))} aria-label="Tăng số lượng">+</button></div></Field>
-            <div className="provider-note"><Activity size={15} /><span>Provider hiện dùng dữ liệu gợi ý mẫu. Search volume thật cần tích hợp nguồn dữ liệu SEO.</span></div>
-            <button className="button button-primary button-wide"><Search size={16} /> Nghiên cứu từ khóa</button>
+            <Field label="Từ khóa hạt giống"><textarea rows={5} value={seeds} onChange={(event) => setSeeds(event.target.value)} placeholder={'nghiên cứu từ khóa\nseo website\ntối ưu nội dung'} /><small className="field-hint">Mỗi dòng một cụm từ khóa</small></Field>
+            <Field label="Số lượng tối đa"><div className="number-control"><button type="button" onClick={() => setLimit(Math.max(1, limit - 10))} aria-label="Giảm số lượng">−</button><input type="number" min={1} max={200} value={limit} onChange={(event) => setLimit(Number(event.target.value))} /><button type="button" onClick={() => setLimit(Math.min(200, limit + 10))} aria-label="Tăng số lượng">+</button></div></Field>
+            <div className="provider-note"><Activity size={15} /><span>Cần cấu hình endpoint nguồn dữ liệu cho {channelLabels[platform]} trong Tích hợp. NovaSEO không tạo dữ liệu mẫu.</span></div>
+            <button className="button button-primary button-wide" disabled={submitting}>{submitting ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} {submitting ? 'Đang gửi yêu cầu…' : 'Nghiên cứu từ khóa'}</button>
           </form>
         </section>
         <section className="panel keyword-results-panel">
@@ -877,14 +995,28 @@ function IntegrationsPage({ project, projects, onProjectChange, onSaved, notify 
   const [form, setForm] = useState<Record<string, string>>({});
   const [channels, setChannels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [settingsProject, setSettingsProject] = useState<Project>();
 
   useEffect(() => {
-    setChannels(project?.targetPlatforms || []);
-    const settings = project?.platformSettings || {};
+    let active = true;
+    setSettingsProject(undefined);
+    if (!project) return () => { active = false; };
+    void api.project(project.id).then((response) => {
+      if (active) setSettingsProject(response.data);
+    }).catch((error) => {
+      if (active) notify(`Không tải được cấu hình dự án: ${errorText(error)}`, 'error');
+    });
+    return () => { active = false; };
+  }, [notify, project?.id]);
+
+  useEffect(() => {
+    if (!project || settingsProject?.id !== project.id) return;
+    setChannels(project.targetPlatforms || []);
+    const settings = settingsProject.platformSettings || {};
     setForm(Object.fromEntries(Object.entries(settings).flatMap(([platform, value]) =>
       Object.entries(value || {}).map(([key, field]) => [`${platform}.${key}`, String(field)]),
     )));
-  }, [project]);
+  }, [project, settingsProject]);
 
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const toggle = (channel: string) => setChannels((current) => current.includes(channel) ? current.filter((item) => item !== channel) : [...current, channel]);
@@ -913,13 +1045,23 @@ function IntegrationsPage({ project, projects, onProjectChange, onSaved, notify 
   return <form className="integrations-form" onSubmit={save}>
     <section className="panel integration-project-bar"><div><div className="eyebrow">CẤU HÌNH THEO DỰ ÁN</div><strong>Chọn website cần thiết lập</strong></div><select value={project?.id || ''} onChange={(event) => onProjectChange(event.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></section>
     <section className="panel integration-channels"><div className="panel-heading"><div><h3>Kênh mục tiêu</h3><p>Bật các nền tảng sẽ dùng trong dự án này.</p></div><span className="panel-heading-icon"><Globe2 size={17} /></span></div><div className="channel-select-grid channel-select-grid-wide">{publishingChannels.map((channel) => <label className={`channel-option ${channels.includes(channel) ? 'channel-option-active' : ''}`} key={channel}><input type="checkbox" checked={channels.includes(channel)} onChange={() => toggle(channel)} /><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channels.includes(channel) ? 'Đã bật' : 'Chưa bật'}</small></span><span className="check-indicator">{channels.includes(channel) && <Check size={13} />}</span></label>)}</div></section>
+    <section className="panel integration-details"><div className="panel-heading"><div><h3>Nguồn nghiên cứu từ khóa</h3><p>Kết nối endpoint SEO trả về danh sách records gồm keyword và volume tùy chọn.</p></div><Hash size={18} className="safe-icon" /></div>
+      {miningChannels.map((channel) => <div className="integration-provider" key={channel}>
+        <div className="provider-title"><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>POST nhận platform, seeds, locale, country và limit</small></span><StatusPill status={form[`${channel}.miningEndpoint`] ? 'connected' : 'pending'} /></div>
+        <div className="form-grid">
+          <Field label={`Endpoint ${channelLabels[channel]}`}><input type="url" value={form[`${channel}.miningEndpoint`] || ''} onChange={(event) => set(`${channel}.miningEndpoint`, event.target.value)} placeholder="https://provider.example.com/keywords" /></Field>
+          <Field label="API key (nếu cần)"><input type="password" autoComplete="new-password" value={form[`${channel}.apiKey`] || ''} onChange={(event) => set(`${channel}.apiKey`, event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field>
+        </div>
+      </div>)}
+      <div className="integration-disclaimer"><Activity size={15} /> Provider cần trả JSON có trường <code>records</code>, mỗi mục gồm <code>keyword</code> và <code>volume</code> tùy chọn. Endpoint được gọi từ server; API key được mã hóa khi lưu.</div>
+    </section>
     <section className="panel integration-details"><div className="panel-heading"><div><h3>Thông tin kết nối</h3><p>Secret được mã hóa khi lưu và không gửi lại cho trình duyệt.</p></div><ShieldCheck size={18} className="safe-icon" /></div>
       <div className="integration-provider"><div className="provider-title"><span className="channel-mark mark-webhook">W</span><span><strong>Custom Webhook</strong><small>Gửi tiêu đề và nội dung qua HTTP POST</small></span><StatusPill status={form['webhook.url'] ? 'connected' : 'pending'} /></div><div className="form-grid"><Field label="Webhook URL"><input type="url" value={form['webhook.url'] || ''} onChange={(event) => set('webhook.url', event.target.value)} placeholder="https://hooks.example.com/content" /></Field><Field label="Webhook secret"><input type="password" autoComplete="new-password" value={form['webhook.secret'] || ''} onChange={(event) => set('webhook.secret', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field></div></div>
       <div className="integration-provider"><div className="provider-title"><span className="channel-mark mark-wordpress">W</span><span><strong>WordPress</strong><small>Site URL và Application Password</small></span><StatusPill status={form['wordpress.siteUrl'] ? 'connected' : 'pending'} /></div><div className="form-grid"><Field label="Site URL"><input type="url" value={form['wordpress.siteUrl'] || ''} onChange={(event) => set('wordpress.siteUrl', event.target.value)} placeholder="https://example.com" /></Field><Field label="Application Password"><input type="password" autoComplete="new-password" value={form['wordpress.appPassword'] || ''} onChange={(event) => set('wordpress.appPassword', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field></div></div>
       <div className="integration-provider"><div className="provider-title"><span className="channel-mark mark-shopify">S</span><span><strong>Shopify</strong><small>Store URL và Admin API token</small></span><StatusPill status={form['shopify.storeUrl'] ? 'connected' : 'pending'} /></div><div className="form-grid"><Field label="Store URL"><input type="url" value={form['shopify.storeUrl'] || ''} onChange={(event) => set('shopify.storeUrl', event.target.value)} placeholder="https://store.myshopify.com" /></Field><Field label="Admin API token"><input type="password" autoComplete="new-password" value={form['shopify.token'] || ''} onChange={(event) => set('shopify.token', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field></div></div>
       <div className="integration-provider"><div className="provider-title"><span className="channel-mark mark-tiktok">T</span><span><strong>TikTok / YouTube</strong><small>OAuth token được cung cấp bởi nền tảng</small></span><StatusPill status={form['tiktok.oauthToken'] || form['youtube.oauthToken'] ? 'connected' : 'pending'} /></div><div className="form-grid"><Field label="TikTok OAuth token"><input type="password" autoComplete="new-password" value={form['tiktok.oauthToken'] || ''} onChange={(event) => set('tiktok.oauthToken', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field><Field label="YouTube OAuth token"><input type="password" autoComplete="new-password" value={form['youtube.oauthToken'] || ''} onChange={(event) => set('youtube.oauthToken', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field></div></div>
       <div className="integration-disclaimer"><Activity size={15} /> Adapter hiện tại hỗ trợ webhook HTTP tổng quát. Tích hợp xuất bản native cho WordPress, Shopify, TikTok và YouTube cần adapter/API credentials tương ứng.</div>
-      <div className="integration-save"><span><ShieldCheck size={14} /> Không hiển thị secret đã lưu</span><button className="button button-primary" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Check size={15} />} Lưu cấu hình</button></div>
+      <div className="integration-save"><span><ShieldCheck size={14} /> Không hiển thị secret đã lưu</span><button className="button button-primary" disabled={busy || settingsProject?.id !== project?.id}>{busy ? <LoaderCircle className="spin" size={16} /> : <Check size={15} />} Lưu cấu hình</button></div>
     </section>
   </form>;
 }
