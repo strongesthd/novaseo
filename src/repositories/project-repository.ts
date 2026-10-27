@@ -68,5 +68,13 @@ export class ProjectRepository {
     return project ? { ...project, platformSettings: redactSettings(project.platformSettings) } : undefined;
   }
 
+  async delete(tenantId: string, id: string) {
+    const result = await query(
+      'DELETE FROM seo_projects WHERE id = $1 AND tenant_id = $2 RETURNING id',
+      [id, tenantId],
+    );
+    return result.rows.length > 0;
+  }
+
   async findById(tenantId: string, id: string) { const result = await query('SELECT * FROM seo_projects WHERE id = $1 AND tenant_id = $2', [id, tenantId]); return result.rows[0]; }
 }

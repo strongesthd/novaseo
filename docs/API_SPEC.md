@@ -35,7 +35,14 @@ Response `201`:
 ```
 Credentials không xuất hiện trong response. Response `400` khi platform/config không hợp lệ; `500` khi không tạo được project.
 
-## 3. Mine keywords
+## 3. Cập nhật và xóa project
+### `PATCH /api/v1/seo/projects/:projectId`
+Cập nhật một hoặc nhiều trường project; tên được loại bỏ khoảng trắng ở đầu/cuối và phải dài từ 1 đến 200 ký tự. Trả `200` với project đã cập nhật, `400` nếu payload không hợp lệ hoặc rỗng, `404` nếu project không tồn tại trong tenant hiện tại.
+
+### `DELETE /api/v1/seo/projects/:projectId`
+Xóa vĩnh viễn project trong tenant hiện tại và các keyword cluster, nội dung, lịch sử xuất bản/indexing liên quan (theo khóa ngoại cascade). Trả `204` khi xóa thành công, `404` nếu project không tồn tại trong tenant hiện tại.
+
+## 4. Mine keywords
 ### `POST /api/v1/seo/keywords/mine`
 Request body:
 ```json
@@ -59,7 +66,7 @@ Response `201`:
 ```
 Response `400` khi platform/params sai; `500` khi không enqueue được job.
 
-## 4. Lấy keyword clusters
+## 5. Lấy keyword clusters
 ### `GET /api/v1/seo/keywords/clusters/:projectId`
 Query params: `platform`, `intent`, `page`, `limit`, `sort`.
 Response `200`:
@@ -68,7 +75,7 @@ Response `200`:
 ```
 Response `400` khi query sai; `500` khi truy vấn thất bại.
 
-## 5. Sinh content
+## 6. Sinh content
 ### `POST /api/v1/seo/content/generate`
 Request body:
 ```json
@@ -87,7 +94,7 @@ OpenAI-compatible cấu hình bằng `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL`.
 Response `201`: `{ "data": { "jobId": "uuid", "status": "queued" } }`.
 Response `400` khi format/cluster không hợp lệ; `500` khi không tạo được job.
 
-## 6. Lấy content theo project
+## 7. Lấy content theo project
 ### `GET /api/v1/seo/content/:projectId`
 Query params: `status`, `page`, `limit`, `includePayload`.
 Response `200`:
@@ -96,7 +103,7 @@ Response `200`:
 ```
 Response `400` khi query sai; `500` khi truy vấn thất bại.
 
-## 7. Publish content đa nền tảng
+## 8. Publish content đa nền tảng
 ### `POST /api/v1/seo/content/publish`
 Request body:
 ```json
@@ -120,7 +127,7 @@ Response `400` khi mảng rỗng/platform không được hỗ trợ; `500` khi 
 WordPress, Shopify và webhook có adapter publish thật. TikTok/YouTube hiện
 trả lỗi cấu hình thay vì giả lập đăng thành công.
 
-## 8. Polling trạng thái job bất đồng bộ
+## 9. Polling trạng thái job bất đồng bộ
 ### `GET /api/v1/seo/jobs/:jobId`
 Headers:
 - `Authorization: Bearer <token>`
@@ -148,7 +155,7 @@ Response `200`:
 
 Response `404` khi không tìm thấy `jobId` hoặc `jobId` không thuộc tenant hiện tại. Response `401/403` khi thiếu hoặc không có quyền với tenant; `500` khi truy vấn job thất bại.
 
-## 9. Xuất bản bài viết sang TRIA CAFE
+## 10. Xuất bản bài viết sang TRIA CAFE
 
 Trong `platformSettings.webhook` của project, cấu hình endpoint và secret dùng chung với biến môi trường `NOVASEO_WEBHOOK_SECRET` trên TRIA:
 

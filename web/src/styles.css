@@ -187,6 +187,8 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   transition: background .15s, border-color .15s, color .15s;
 }
 .icon-button:hover { border-color: var(--line); color: var(--green); background: #f8faf8; }
+.icon-button-danger { color: #b55247; }
+.icon-button-danger:hover { border-color: #f0d3cd; color: #a13e35; background: #fff8f6; }
 .icon-button.tiny { width: 24px; height: 24px; }
 .top-avatar { border-color: #c9e5d9; border-radius: 50%; color: #176c55; background: #e5f4ed; font-size: 12px; font-weight: 700; }
 .menu-toggle { display: none; }
@@ -216,6 +218,8 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .button-primary:hover:not(:disabled) { border-color: var(--green-dark); background: var(--green-dark); }
 .button-secondary { border-color: #dce4df; color: #53625b; background: #fff; }
 .button-secondary:hover:not(:disabled) { border-color: #b7ccc1; color: #176e58; background: #f8fbf9; }
+.button-danger { border-color: #c55d50; color: #fff; background: #c55d50; }
+.button-danger:hover:not(:disabled) { border-color: #a9483d; background: #a9483d; }
 .button-white { border-color: #fff; color: #1b654f; background: #fff; }
 .button-white:hover { background: #e8f5ef; }
 .button-quiet-light { color: #dcebe4; background: transparent; }
@@ -346,6 +350,8 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .data-table td { height: 55px; padding: 7px 13px; border-bottom: 1px solid #f0f3f1; color: #596760; font-size: 10px; white-space: nowrap; }
 .data-table tbody tr:hover { background: #fafcfb; }
 .data-table tbody tr:last-child td { border-bottom: 0; }
+.project-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.delete-warning { padding: 11px 12px; border: 1px solid #f0d3cd; border-radius: 5px; color: #93483f; background: #fff8f6; font-size: 10px; line-height: 1.6; }
 .table-project { display: flex; align-items: center; gap: 8px; }
 .table-project > span:last-child { display: grid; gap: 3px; }
 .project-open-button { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }

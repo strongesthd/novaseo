@@ -59,4 +59,14 @@ router.patch('/:projectId', validate({ params: z.object({ projectId: z.string().
   res.status(200).json({ data: project });
 }));
 
+router.delete('/:projectId', validate({ params: z.object({ projectId: z.string().uuid() }) }), asyncHandler(async (req, res) => {
+  const projectId = Array.isArray(req.params.projectId) ? req.params.projectId[0] : req.params.projectId;
+  const deleted = await repository.delete(req.tenantId!, projectId);
+  if (!deleted) {
+    res.status(404).json({ error: { code: 'PROJECT_NOT_FOUND', message: 'Project was not found.' } });
+    return;
+  }
+  res.status(204).end();
+}));
+
 export default router;

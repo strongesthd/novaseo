@@ -28,6 +28,7 @@ declare module 'lucide-react' {
   export const LogOut: LucideIcon;
   export const Menu: LucideIcon;
   export const MoreHorizontal: LucideIcon;
+  export const Pencil: LucideIcon;
   export const Plus: LucideIcon;
   export const RefreshCw: LucideIcon;
   export const Search: LucideIcon;
@@ -36,6 +37,7 @@ declare module 'lucide-react' {
   export const ShieldCheck: LucideIcon;
   export const Sparkles: LucideIcon;
   export const Target: LucideIcon;
+  export const Trash2: LucideIcon;
   export const Upload: LucideIcon;
   export const Wand2: LucideIcon;
   export const X: LucideIcon;

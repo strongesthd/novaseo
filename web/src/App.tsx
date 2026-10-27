@@ -5,8 +5,8 @@ import {
   Activity, ArrowRight, ArrowUpRight, BookOpen,
   Check, ChevronDown, ChevronRight, CircleHelp, Clock3, Command,
   FileText, FolderKanban, Globe2, Hash, LayoutDashboard, LoaderCircle, LogOut,
-  Menu, MoreHorizontal, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck,
-  Sparkles, Target, Upload, Wand2, X,
+  Menu, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck,
+  Sparkles, Target, Trash2, Upload, Wand2, X,
 } from 'lucide-react';
 import { api, Cluster, ContentItem, Job, Project, setActiveTenant, Tenant, User } from './api';
 
@@ -57,7 +57,8 @@ function App() {
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [toast, setToast] = useState<ToastState>();
   const [mobileNav, setMobileNav] = useState(false);
-  const [modal, setModal] = useState<'project' | undefined>();
+  const [modal, setModal] = useState<'project' | 'rename-project' | 'delete-project'>();
+  const [managedProject, setManagedProject] = useState<Project>();
   const [apiOnline, setApiOnline] = useState<boolean>();
   const selectedProject = projects.find((item) => item.id === projectId);
 
@@ -314,6 +315,8 @@ function App() {
             onCreate={() => setModal('project')}
             onSelectProject={(id) => { setProjectId(id); navigate('overview'); }}
             onOpenSettings={(id) => { setProjectId(id); navigate('integrations'); }}
+            onRename={(project) => { setManagedProject(project); setModal('rename-project'); }}
+            onDelete={(project) => { setManagedProject(project); setModal('delete-project'); }}
           />}
           {screen === 'keywords' && <KeywordsPage project={selectedProject} clusters={clusters} onStart={startJob} onGenerate={(cluster) => {
             if (!selectedProject) { notify('Hãy tạo dự án trước.', 'error'); return; }
@@ -334,6 +337,26 @@ function App() {
         notify('Đã tạo dự án');
         navigate('integrations');
       }} />}
+      {modal === 'rename-project' && managedProject && <RenameProjectModal
+        project={managedProject}
+        onClose={() => { setModal(undefined); setManagedProject(undefined); }}
+        onSaved={async (project) => {
+          setModal(undefined);
+          setManagedProject(undefined);
+          notify('Đã cập nhật tên dự án');
+          await refreshWorkspace(project.id);
+        }}
+      />}
+      {modal === 'delete-project' && managedProject && <DeleteProjectModal
+        project={managedProject}
+        onClose={() => { setModal(undefined); setManagedProject(undefined); }}
+        onDeleted={async () => {
+          setModal(undefined);
+          setManagedProject(undefined);
+          notify('Đã xóa dự án');
+          await refreshWorkspace();
+        }}
+      />}
       {toast && <div className={`toast toast-${toast.kind}`} role="status"><span className="toast-icon">{toast.kind === 'success' ? <Check size={16} /> : <X size={16} />}</span>{toast.message}</div>}
     </div>
   );
@@ -498,8 +521,9 @@ function WorkflowItem({ number, title, detail, icon, onClick }: { number: string
   return <button className="workflow-item" onClick={onClick}><span className="workflow-number">{number}</span><span className="workflow-icon">{icon}</span><span className="workflow-item-copy"><strong>{title}</strong><small>{detail}</small></span></button>;
 }
 
-function ProjectsPage({ projects, onCreate, onSelectProject, onOpenSettings }: {
+function ProjectsPage({ projects, onCreate, onSelectProject, onOpenSettings, onRename, onDelete }: {
   projects: Project[]; onCreate: () => void; onSelectProject: (id: string) => void; onOpenSettings: (id: string) => void;
+  onRename: (project: Project) => void; onDelete: (project: Project) => void;
 }) {
   const [query, setQuery] = useState('');
   const filtered = projects.filter((project) =>
@@ -508,11 +532,72 @@ function ProjectsPage({ projects, onCreate, onSelectProject, onOpenSettings }: {
   return (
     <section className="panel data-panel">
       <div className="panel-toolbar"><div className="toolbar-title"><FolderKanban size={18} /><strong>{projects.length} dự án</strong></div><div className="toolbar-actions"><div className="search-box"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm dự án" aria-label="Tìm dự án" /></div><button className="button button-primary" onClick={onCreate}><Plus size={16} /> Dự án mới</button></div></div>
-      {projects.length && filtered.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>TÊN DỰ ÁN</th><th>NGÀNH</th><th>KÊNH MỤC TIÊU</th><th>TRẠNG THÁI</th><th>CẬP NHẬT</th><th /></tr></thead><tbody>{filtered.map((project) => <tr key={project.id}><td><button className="project-open-button" onClick={() => onSelectProject(project.id)}><span className="project-monogram">{project.name.slice(0, 1).toUpperCase()}</span><span><strong>{project.name}</strong><small>{project.id.slice(0, 8)}</small></span></button></td><td>{project.industry}</td><td><ChannelList channels={project.targetPlatforms || []} /></td><td><StatusPill status={project.status} /></td><td>{friendlyDate(project.createdAt)}</td><td><button className="icon-button" title="Cấu hình tích hợp" aria-label={`Cấu hình ${project.name}`} onClick={() => onOpenSettings(project.id)}><Settings2 size={16} /></button></td></tr>)}</tbody></table></div>
+      {projects.length && filtered.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>TÊN DỰ ÁN</th><th>NGÀNH</th><th>KÊNH MỤC TIÊU</th><th>TRẠNG THÁI</th><th>CẬP NHẬT</th><th /></tr></thead><tbody>{filtered.map((project) => <tr key={project.id}><td><button className="project-open-button" onClick={() => onSelectProject(project.id)}><span className="project-monogram">{project.name.slice(0, 1).toUpperCase()}</span><span><strong>{project.name}</strong><small>{project.id.slice(0, 8)}</small></span></button></td><td>{project.industry}</td><td><ChannelList channels={project.targetPlatforms || []} /></td><td><StatusPill status={project.status} /></td><td>{friendlyDate(project.createdAt)}</td><td><div className="project-row-actions"><button className="icon-button" title="Sửa tên dự án" aria-label={`Sửa tên ${project.name}`} onClick={() => onRename(project)}><Pencil size={15} /></button><button className="icon-button" title="Cấu hình tích hợp" aria-label={`Cấu hình ${project.name}`} onClick={() => onOpenSettings(project.id)}><Settings2 size={16} /></button><button className="icon-button icon-button-danger" title="Xóa dự án" aria-label={`Xóa ${project.name}`} onClick={() => onDelete(project)}><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>
         : projects.length ? <EmptyInline icon={<Search size={20} />} title="Không tìm thấy dự án" action="Thử từ khóa khác" />
           : <EmptyState icon={<FolderKanban size={25} />} title="Chưa có dự án SEO" description="Tạo dự án để lưu cấu hình thương hiệu, đối tượng và mục tiêu kênh." action="Tạo dự án đầu tiên" onClick={onCreate} />}
       <div className="panel-footnote"><ShieldCheck size={14} /> Dữ liệu dự án được tách biệt trong workspace hiện tại.</div>
     </section>
+  );
+}
+
+function RenameProjectModal({ project, onClose, onSaved }: {
+  project: Project; onClose: () => void; onSaved: (project: Project) => Promise<void>;
+}) {
+  const [name, setName] = useState(project.name);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await api.updateProject(project.id, { name: trimmedName });
+      await onSaved(response.data);
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Sửa tên dự án" subtitle="Tên mới sẽ được cập nhật trong toàn bộ workspace." onClose={onClose}>
+      <form onSubmit={submit} className="modal-form">
+        <Field label="Tên dự án"><input required maxLength={200} autoFocus value={name} onChange={(event) => setName(event.target.value)} /></Field>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Hủy</button><button className="button button-primary" disabled={busy || !name.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <Check size={15} />} Lưu tên</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function DeleteProjectModal({ project, onClose, onDeleted }: {
+  project: Project; onClose: () => void; onDeleted: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await api.deleteProject(project.id);
+      await onDeleted();
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Xóa vĩnh viễn dự án?" subtitle={`Dự án "${project.name}" sẽ bị xóa khỏi workspace.`} onClose={onClose}>
+      <form onSubmit={submit} className="modal-form">
+        <div className="delete-warning" role="alert">Thao tác này không thể hoàn tác. Tất cả từ khóa, nội dung, lịch sử xuất bản và lịch sử indexing gắn với dự án sẽ bị xóa.</div>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Hủy</button><button className="button button-danger" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={15} />} Xóa vĩnh viễn</button></div>
+      </form>
+    </Modal>
   );
 }
 

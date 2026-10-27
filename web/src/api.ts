@@ -102,6 +102,8 @@ export const api = {
     request<Envelope<Project>>('/api/v1/seo/projects', json('POST', body)),
   updateProject: (id: string, body: Record<string, unknown>) =>
     request<Envelope<Project>>(`/api/v1/seo/projects/${id}`, json('PATCH', body)),
+  deleteProject: (id: string) =>
+    request<void>(`/api/v1/seo/projects/${id}`, json('DELETE')),
   clusters: (projectId: string) =>
     request<Envelope<Cluster[]>>(`/api/v1/seo/keywords/clusters/${projectId}?page=1&limit=100`),
   mine: (body: Record<string, unknown>) =>
