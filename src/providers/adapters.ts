@@ -40,6 +40,17 @@ function requiredString(value: unknown, code: string, platform: string): string 
   return value.trim();
 }
 
+export function isSerpApiEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return url.protocol === 'https:' &&
+      url.hostname === 'serpapi.com' &&
+      ['/search', '/search.json'].includes(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export class GenericKeywordMiner implements KeywordMiner {
   constructor(
     public readonly platform: MiningPlatform,
@@ -62,6 +73,43 @@ export class GenericKeywordMiner implements KeywordMiner {
       throw new ProviderError('MINING_PROVIDER_NOT_CONFIGURED', this.platform, false);
     }
     const apiKey = input.credentials?.apiKey;
+    if (isSerpApiEndpoint(endpoint)) {
+      if (this.platform !== 'google') throw new ProviderError('SERPAPI_GOOGLE_AUTOCOMPLETE_ONLY', this.platform, false);
+      if (typeof apiKey !== 'string' || !apiKey.trim()) throw new ProviderError('SERPAPI_API_KEY_REQUIRED', this.platform, false);
+
+      const records: KeywordRecord[] = [];
+      for (const seed of input.seeds) {
+        const url = new URL('https://serpapi.com/search.json');
+        url.searchParams.set('engine', 'google_autocomplete');
+        url.searchParams.set('q', seed);
+        url.searchParams.set('api_key', apiKey);
+        url.searchParams.set('gl', input.country.toLowerCase());
+        url.searchParams.set('hl', input.locale.split('-')[0].toLowerCase());
+        const response = await this.transport(url.toString(), { method: 'GET' });
+        if (!response.ok) failHttp(response.status, this.platform);
+        if (typeof response.data?.error === 'string') {
+          throw new ProviderError('SERPAPI_REQUEST_FAILED', this.platform, false);
+        }
+        if (!Array.isArray(response.data?.suggestions)) {
+          throw new ProviderError('MINING_INVALID_RESPONSE', this.platform, false);
+        }
+        for (const item of response.data.suggestions) {
+          if (typeof item?.value !== 'string' || !item.value.trim()) continue;
+          records.push({
+            keyword: item.value.trim().slice(0, 240),
+            platform: this.platform,
+            source: 'Google Autocomplete via SerpApi',
+            locale: input.locale,
+            country: input.country,
+            suggestions: [],
+            metadata: { provider: 'serpapi-google-autocomplete' },
+          });
+          if (records.length >= input.limit) return records;
+        }
+      }
+      return records;
+    }
+
     const response = await this.transport(endpoint, {
       method: 'POST',
       headers: typeof apiKey === 'string' ? { authorization: `Bearer ${apiKey}` } : undefined,

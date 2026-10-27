@@ -56,6 +56,15 @@ function jobFailureText(job: Job) {
   if (job.error?.code === 'HTTP_429') {
     return 'Nguồn dữ liệu đang giới hạn yêu cầu. Hãy đợi một lúc rồi thử lại.';
   }
+  if (job.error?.code === 'SERPAPI_REQUEST_FAILED') {
+    return 'SerpApi không xử lý được yêu cầu. Kiểm tra API key và hạn mức tài khoản.';
+  }
+  if (job.error?.code === 'SERPAPI_API_KEY_REQUIRED') {
+    return 'Chưa nhập API key SerpApi trong Tích hợp → Nguồn nghiên cứu từ khóa.';
+  }
+  if (job.error?.code === 'SERPAPI_GOOGLE_AUTOCOMPLETE_ONLY') {
+    return 'SerpApi hiện chỉ được hỗ trợ cho nền tảng Google Autocomplete.';
+  }
   return job.error?.message || `Tác vụ ${job.jobId.slice(0, 8)} thất bại.`;
 }
 
@@ -1047,13 +1056,13 @@ function IntegrationsPage({ project, projects, onProjectChange, onSaved, notify 
     <section className="panel integration-channels"><div className="panel-heading"><div><h3>Kênh mục tiêu</h3><p>Bật các nền tảng sẽ dùng trong dự án này.</p></div><span className="panel-heading-icon"><Globe2 size={17} /></span></div><div className="channel-select-grid channel-select-grid-wide">{publishingChannels.map((channel) => <label className={`channel-option ${channels.includes(channel) ? 'channel-option-active' : ''}`} key={channel}><input type="checkbox" checked={channels.includes(channel)} onChange={() => toggle(channel)} /><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channels.includes(channel) ? 'Đã bật' : 'Chưa bật'}</small></span><span className="check-indicator">{channels.includes(channel) && <Check size={13} />}</span></label>)}</div></section>
     <section className="panel integration-details"><div className="panel-heading"><div><h3>Nguồn nghiên cứu từ khóa</h3><p>Kết nối endpoint SEO trả về danh sách records gồm keyword và volume tùy chọn.</p></div><Hash size={18} className="safe-icon" /></div>
       {miningChannels.map((channel) => <div className="integration-provider" key={channel}>
-        <div className="provider-title"><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>POST nhận platform, seeds, locale, country và limit</small></span><StatusPill status={form[`${channel}.miningEndpoint`] ? 'connected' : 'pending'} /></div>
+        <div className="provider-title"><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channel === 'google' ? 'Hỗ trợ SerpApi Google Autocomplete và custom POST' : 'Custom POST nhận platform, seeds, locale, country và limit'}</small></span><StatusPill status={form[`${channel}.miningEndpoint`] ? 'connected' : 'pending'} /></div>
         <div className="form-grid">
-          <Field label={`Endpoint ${channelLabels[channel]}`}><input type="url" value={form[`${channel}.miningEndpoint`] || ''} onChange={(event) => set(`${channel}.miningEndpoint`, event.target.value)} placeholder="https://provider.example.com/keywords" /></Field>
+          <Field label={`Endpoint ${channelLabels[channel]}`}><input type="url" value={form[`${channel}.miningEndpoint`] || ''} onChange={(event) => set(`${channel}.miningEndpoint`, event.target.value)} placeholder={channel === 'google' ? 'https://serpapi.com/search.json' : 'https://provider.example.com/keywords'} /></Field>
           <Field label="API key (nếu cần)"><input type="password" autoComplete="new-password" value={form[`${channel}.apiKey`] || ''} onChange={(event) => set(`${channel}.apiKey`, event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field>
         </div>
       </div>)}
-      <div className="integration-disclaimer"><Activity size={15} /> Provider cần trả JSON có trường <code>records</code>, mỗi mục gồm <code>keyword</code> và <code>volume</code> tùy chọn. Endpoint được gọi từ server; API key được mã hóa khi lưu.</div>
+      <div className="integration-disclaimer"><Activity size={15} /> Với SerpApi, dùng <code>https://serpapi.com/search.json</code> và dán key riêng; Google Autocomplete trả gợi ý, không có search volume. Endpoint custom cần trả JSON có trường <code>records</code>. API key được mã hóa khi lưu.</div>
     </section>
     <section className="panel integration-details"><div className="panel-heading"><div><h3>Thông tin kết nối</h3><p>Secret được mã hóa khi lưu và không gửi lại cho trình duyệt.</p></div><ShieldCheck size={18} className="safe-icon" /></div>
       <div className="integration-provider"><div className="provider-title"><span className="channel-mark mark-webhook">W</span><span><strong>Custom Webhook</strong><small>Gửi tiêu đề và nội dung qua HTTP POST</small></span><StatusPill status={form['webhook.url'] ? 'connected' : 'pending'} /></div><div className="form-grid"><Field label="Webhook URL"><input type="url" value={form['webhook.url'] || ''} onChange={(event) => set('webhook.url', event.target.value)} placeholder="https://hooks.example.com/content" /></Field><Field label="Webhook secret"><input type="password" autoComplete="new-password" value={form['webhook.secret'] || ''} onChange={(event) => set('webhook.secret', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field></div></div>

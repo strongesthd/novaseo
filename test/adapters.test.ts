@@ -38,6 +38,82 @@ describe('GenericKeywordMiner', () => {
     })]);
   });
 
+  it('uses SerpApi Google Autocomplete and maps suggestions without inventing search volume', async () => {
+    const transport = vi.fn(async (
+      _url: string,
+      _options: { method?: string; headers?: Record<string, string>; body?: string | Record<string, unknown> },
+    ) => success({ suggestions: [
+      { value: 'cà phê hạt rang' },
+      { value: 'cà phê hạt ngon' },
+    ] }));
+    const miner = new GenericKeywordMiner('google', transport);
+    const records = await miner.mine({
+      seeds: ['cà phê hạt'],
+      locale: 'vi-VN',
+      country: 'VN',
+      limit: 10,
+      credentials: {
+        miningEndpoint: 'https://serpapi.com/search.json',
+        apiKey: 'serpapi-private-key',
+      },
+    });
+
+    expect(transport).toHaveBeenCalledOnce();
+    const [requestUrl, options] = transport.mock.calls[0]!;
+    const url = new URL(requestUrl);
+    expect(url.origin + url.pathname).toBe('https://serpapi.com/search.json');
+    expect(url.searchParams.get('engine')).toBe('google_autocomplete');
+    expect(url.searchParams.get('q')).toBe('cà phê hạt');
+    expect(url.searchParams.get('api_key')).toBe('serpapi-private-key');
+    expect(url.searchParams.get('gl')).toBe('vn');
+    expect(url.searchParams.get('hl')).toBe('vi');
+    expect(options).toEqual({ method: 'GET' });
+    expect(records).toEqual([
+      expect.objectContaining({
+        keyword: 'cà phê hạt rang',
+        source: 'Google Autocomplete via SerpApi',
+        metadata: { provider: 'serpapi-google-autocomplete' },
+        suggestions: [],
+      }),
+      expect.objectContaining({
+        keyword: 'cà phê hạt ngon',
+        source: 'Google Autocomplete via SerpApi',
+        metadata: { provider: 'serpapi-google-autocomplete' },
+        suggestions: [],
+      }),
+    ]);
+    expect(records.every((record) => record.volume === undefined && record.competition === undefined)).toBe(true);
+  });
+
+  it('requires an API key to use SerpApi', async () => {
+    const transport = vi.fn();
+    const miner = new GenericKeywordMiner('google', transport);
+    await expect(miner.mine({
+      seeds: ['seo'],
+      locale: 'vi-VN',
+      country: 'VN',
+      limit: 10,
+      credentials: { miningEndpoint: 'https://serpapi.com/search.json' },
+    })).rejects.toMatchObject({ code: 'SERPAPI_API_KEY_REQUIRED', retryable: false });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it('only supports SerpApi Google Autocomplete on the Google platform', async () => {
+    const transport = vi.fn();
+    const miner = new GenericKeywordMiner('youtube', transport);
+    await expect(miner.mine({
+      seeds: ['seo'],
+      locale: 'vi-VN',
+      country: 'VN',
+      limit: 10,
+      credentials: {
+        miningEndpoint: 'https://serpapi.com/search.json',
+        apiKey: 'serpapi-private-key',
+      },
+    })).rejects.toMatchObject({ code: 'SERPAPI_GOOGLE_AUTOCOMPLETE_ONLY', retryable: false });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid seed limits before calling a provider', async () => {
     const transport = vi.fn();
     const miner = new GenericKeywordMiner('google', transport);

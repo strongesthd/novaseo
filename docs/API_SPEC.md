@@ -58,8 +58,9 @@ Request body:
 `platform` bắt buộc và nhận một trong: `google | shopee | lazada | tiktok | youtube`.
 `seedKeywords` nhận từ 1 đến 20 mục, tối đa 120 ký tự mỗi mục; `limit` tối đa 200.
 Mining cần `platformSettings[platform].miningEndpoint` được cấu hình trong project.
-Endpoint nhận `{ platform, seeds, locale, country, limit }` và trả `{ "records": [{ "keyword": "...", "volume": 10, "competition": 0.2, "suggestions": [] }] }`.
+Endpoint custom nhận `{ platform, seeds, locale, country, limit }` và trả `{ "records": [{ "keyword": "...", "volume": 10, "competition": 0.2, "suggestions": [] }] }`.
 `miningEndpoint` và API key (nếu cần) được cấu hình trong mục Tích hợp của project; API key được mã hóa khi lưu. Thiếu endpoint trả `400 MINING_PROVIDER_NOT_CONFIGURED` trước khi enqueue. Không có provider thì hệ thống không sinh số liệu giả.
+Với Google, có thể dùng SerpApi Google Autocomplete bằng endpoint `https://serpapi.com/search.json` và API key nhập riêng ở ô API key (không dán key vào endpoint). SerpApi được gọi bằng HTTPS GET, mỗi seed tạo một yêu cầu với `engine=google_autocomplete`, `q`, `gl`, `hl` và API key. Phản hồi `suggestions[].value` được lưu thành keyword; dịch vụ không cung cấp search volume nên các trường `volume` và `competition` để trống. Tích hợp này chỉ hỗ trợ nền tảng Google. Thiếu key trả `400 SERPAPI_API_KEY_REQUIRED`.
 Response `201`:
 ```json
 { "data": { "jobId": "uuid", "status": "queued", "platform": "google" } }

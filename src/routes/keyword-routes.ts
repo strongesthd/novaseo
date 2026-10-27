@@ -8,6 +8,7 @@ import { queues } from '../queues/queues.js';
 import { rateLimitProvider } from '../middleware/rate-limit.js';
 import { ProjectRepository } from '../repositories/project-repository.js';
 import { decryptSettings } from '../utils/settings-crypto.js';
+import { isSerpApiEndpoint } from '../providers/adapters.js';
 
 const router = Router();
 const jobs = new JobService(undefined, queues);
@@ -38,6 +39,32 @@ router.post('/mine', rateLimitProvider, validate({ body: mineSchema }), asyncHan
       error: {
         code: 'MINING_PROVIDER_NOT_CONFIGURED',
         message: `Chưa cấu hình nguồn dữ liệu cho ${body.platform}. Vào Tích hợp → Nguồn nghiên cứu từ khóa để cấu hình.`,
+      },
+    });
+    return;
+  }
+  try {
+    new URL(endpoint);
+  } catch {
+    res.status(400).json({
+      error: { code: 'INVALID_MINING_ENDPOINT', message: 'Endpoint nghiên cứu từ khóa không hợp lệ.' },
+    });
+    return;
+  }
+  if (isSerpApiEndpoint(endpoint) && body.platform !== 'google') {
+    res.status(400).json({
+      error: {
+        code: 'SERPAPI_GOOGLE_AUTOCOMPLETE_ONLY',
+        message: 'SerpApi Google Autocomplete chỉ dùng được với nền tảng Google.',
+      },
+    });
+    return;
+  }
+  if (isSerpApiEndpoint(endpoint) && !settings[body.platform]?.apiKey) {
+    res.status(400).json({
+      error: {
+        code: 'SERPAPI_API_KEY_REQUIRED',
+        message: 'Nhập API key SerpApi trong phần Tích hợp → Nguồn nghiên cứu từ khóa.',
       },
     });
     return;
