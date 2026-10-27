@@ -736,11 +736,31 @@ function KeywordsPage({ tenantId, project, clusters, onStart, notify, onGenerate
   const [intent, setIntent] = useState('all');
   const [draftReady, setDraftReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [providerStatus, setProviderStatus] = useState<'checking' | 'configured' | 'missing' | 'error'>('checking');
   const cacheKey = `novaseo-keyword-research:${tenantId}:${project?.id || 'none'}`;
   const filtered = useMemo(() => clusters.filter((cluster) =>
     (!filter || `${cluster.primaryKeyword} ${cluster.clusterName}`.toLowerCase().includes(filter.toLowerCase())) &&
     (intent === 'all' || cluster.intent === intent),
   ), [clusters, filter, intent]);
+
+  useEffect(() => {
+    let active = true;
+    if (!project) {
+      setProviderStatus('missing');
+      return () => { active = false; };
+    }
+    setProviderStatus('checking');
+    void api.project(project.id).then((response) => {
+      if (!active) return;
+      const endpoint = response.data.platformSettings?.[platform]?.miningEndpoint;
+      setProviderStatus(typeof endpoint === 'string' && endpoint.trim() ? 'configured' : 'missing');
+    }).catch((error) => {
+      if (!active) return;
+      setProviderStatus('error');
+      notify(`Không kiểm tra được cấu hình nguồn từ khóa: ${errorText(error)}`, 'error');
+    });
+    return () => { active = false; };
+  }, [notify, platform, project?.id]);
 
   useEffect(() => {
     try {
@@ -810,7 +830,15 @@ function KeywordsPage({ tenantId, project, clusters, onStart, notify, onGenerate
             <Field label="Nền tảng"><select value={platform} onChange={(event) => setPlatform(event.target.value)}>{miningChannels.map((channel) => <option key={channel} value={channel}>{channelLabels[channel]}</option>)}</select></Field>
             <Field label="Từ khóa hạt giống"><textarea rows={5} value={seeds} onChange={(event) => setSeeds(event.target.value)} placeholder={'nghiên cứu từ khóa\nseo website\ntối ưu nội dung'} /><small className="field-hint">Mỗi dòng một cụm từ khóa</small></Field>
             <Field label="Số lượng tối đa"><div className="number-control"><button type="button" onClick={() => setLimit(Math.max(1, limit - 10))} aria-label="Giảm số lượng">−</button><input type="number" min={1} max={200} value={limit} onChange={(event) => setLimit(Number(event.target.value))} /><button type="button" onClick={() => setLimit(Math.min(200, limit + 10))} aria-label="Tăng số lượng">+</button></div></Field>
-            <div className="provider-note"><Activity size={15} /><span>Cần cấu hình endpoint nguồn dữ liệu cho {channelLabels[platform]} trong Tích hợp. NovaSEO không tạo dữ liệu mẫu.</span></div>
+            <div className="provider-note"><Activity size={15} /><span>{providerStatus === 'checking'
+              ? 'Đang kiểm tra cấu hình nguồn dữ liệu đã lưu…'
+              : providerStatus === 'missing'
+                ? `Chưa lưu endpoint cho ${channelLabels[platform]}. Hãy cấu hình tại Tích hợp trước khi nghiên cứu.`
+                : providerStatus === 'error'
+                  ? 'Không xác minh được cấu hình. Hãy thử nghiên cứu; hệ thống sẽ báo lỗi nếu endpoint hoặc API key chưa hợp lệ.'
+                  : platform === 'google'
+                    ? 'Đã lưu endpoint Google. API key được bảo vệ; Google Autocomplete không cung cấp volume.'
+                    : `Đã lưu endpoint cho ${channelLabels[platform]}. Kết quả tùy thuộc dữ liệu provider trả về.`}</span></div>
             <button className="button button-primary button-wide" disabled={submitting}>{submitting ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} {submitting ? 'Đang gửi yêu cầu…' : 'Nghiên cứu từ khóa'}</button>
           </form>
         </section>
@@ -1039,7 +1067,8 @@ function IntegrationsPage({ project, projects, onProjectChange, onSaved, notify 
       if (value.trim()) settings[platform] = { ...settings[platform], [field]: value.trim() };
     }
     try {
-      await api.updateProject(project.id, { targetPlatforms: channels, platformSettings: settings });
+      const response = await api.updateProject(project.id, { targetPlatforms: channels, platformSettings: settings });
+      setSettingsProject(response.data);
       await onSaved();
       notify('Đã lưu cấu hình tích hợp');
     } catch (error) {
@@ -1056,7 +1085,7 @@ function IntegrationsPage({ project, projects, onProjectChange, onSaved, notify 
     <section className="panel integration-channels"><div className="panel-heading"><div><h3>Kênh mục tiêu</h3><p>Bật các nền tảng sẽ dùng trong dự án này.</p></div><span className="panel-heading-icon"><Globe2 size={17} /></span></div><div className="channel-select-grid channel-select-grid-wide">{publishingChannels.map((channel) => <label className={`channel-option ${channels.includes(channel) ? 'channel-option-active' : ''}`} key={channel}><input type="checkbox" checked={channels.includes(channel)} onChange={() => toggle(channel)} /><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channels.includes(channel) ? 'Đã bật' : 'Chưa bật'}</small></span><span className="check-indicator">{channels.includes(channel) && <Check size={13} />}</span></label>)}</div></section>
     <section className="panel integration-details"><div className="panel-heading"><div><h3>Nguồn nghiên cứu từ khóa</h3><p>Kết nối endpoint SEO trả về danh sách records gồm keyword và volume tùy chọn.</p></div><Hash size={18} className="safe-icon" /></div>
       {miningChannels.map((channel) => <div className="integration-provider" key={channel}>
-        <div className="provider-title"><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channel === 'google' ? 'Hỗ trợ SerpApi Google Autocomplete và custom POST' : 'Custom POST nhận platform, seeds, locale, country và limit'}</small></span><StatusPill status={form[`${channel}.miningEndpoint`] ? 'connected' : 'pending'} /></div>
+        <div className="provider-title"><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channel === 'google' ? 'Hỗ trợ SerpApi Google Autocomplete và custom POST' : 'Custom POST nhận platform, seeds, locale, country và limit'}</small></span><StatusPill status={settingsProject?.platformSettings?.[channel]?.miningEndpoint ? 'connected' : 'pending'} /></div>
         <div className="form-grid">
           <Field label={`Endpoint ${channelLabels[channel]}`}><input type="url" value={form[`${channel}.miningEndpoint`] || ''} onChange={(event) => set(`${channel}.miningEndpoint`, event.target.value)} placeholder={channel === 'google' ? 'https://serpapi.com/search.json' : 'https://provider.example.com/keywords'} /></Field>
           <Field label="API key (nếu cần)"><input type="password" autoComplete="new-password" value={form[`${channel}.apiKey`] || ''} onChange={(event) => set(`${channel}.apiKey`, event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field>
