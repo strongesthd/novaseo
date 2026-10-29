@@ -2,15 +2,15 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  Activity, ArrowRight, ArrowUpRight, BookOpen,
+  Activity, ArrowRight, ArrowUpRight, BarChart3, BookOpen,
   Check, ChevronDown, ChevronRight, CircleHelp, Clock3, Command,
   FileText, FolderKanban, Globe2, Hash, LayoutDashboard, LoaderCircle, LogOut,
   Menu, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Send, Settings2, ShieldCheck,
   Sparkles, Target, Trash2, Upload, Wand2, X,
 } from 'lucide-react';
-import { api, Cluster, ContentItem, Job, Project, setActiveTenant, Tenant, User } from './api';
+import { api, Cluster, ContentItem, Job, Project, SeoSnapshot, setActiveTenant, Tenant, User } from './api';
 
-type Screen = 'overview' | 'projects' | 'keywords' | 'content' | 'publishing' | 'jobs' | 'integrations';
+type Screen = 'overview' | 'projects' | 'keywords' | 'content' | 'publishing' | 'insights' | 'jobs' | 'integrations';
 type AuthMode = 'checking' | 'setup' | 'login' | 'app';
 type ToastKind = 'success' | 'error';
 type ToastState = { message: string; kind: ToastKind } | undefined;
@@ -21,6 +21,7 @@ const screenMeta: Record<Screen, { title: string; subtitle: string; icon: typeof
   keywords: { title: 'Nghiên cứu từ khóa', subtitle: 'Khám phá chủ đề và nhóm ý định tìm kiếm', icon: Hash },
   content: { title: 'Thư viện nội dung', subtitle: 'Soạn, biên tập và tối ưu nội dung SEO', icon: FileText },
   publishing: { title: 'Xuất bản', subtitle: 'Phân phối nội dung đến các kênh đã kết nối', icon: Upload },
+  insights: { title: 'SEO Insights', subtitle: 'Volume, thứ hạng, Search Console, audit và backlink', icon: BarChart3 },
   jobs: { title: 'Tác vụ', subtitle: 'Theo dõi tiến độ xử lý của hệ thống', icon: Activity },
   integrations: { title: 'Tích hợp', subtitle: 'Cấu hình các kênh xuất bản theo từng dự án', icon: Globe2 },
 };
@@ -341,6 +342,7 @@ function App() {
             <NavItem id="keywords" active={screen} icon={<Hash size={17} />} onClick={navigate}>Từ khóa</NavItem>
             <NavItem id="content" active={screen} icon={<FileText size={17} />} onClick={navigate}>Nội dung <span className="nav-count">{contents.length}</span></NavItem>
             <NavItem id="publishing" active={screen} icon={<Send size={17} />} onClick={navigate}>Xuất bản</NavItem>
+            <NavItem id="insights" active={screen} icon={<BarChart3 size={17} />} onClick={navigate}>SEO Insights</NavItem>
           </NavGroup>
           <NavGroup title="VẬN HÀNH">
             <NavItem id="jobs" active={screen} icon={<Activity size={17} />} onClick={navigate}>Tác vụ</NavItem>
@@ -409,6 +411,7 @@ function App() {
           }} navigate={navigate} />}
           {screen === 'content' && <ContentPage project={selectedProject} contents={contents} clusters={clusters} refresh={refreshWorkspace} notify={notify} navigate={navigate} />}
           {screen === 'publishing' && <PublishingPage project={selectedProject} contents={contents} onStart={startJob} navigate={navigate} />}
+          {screen === 'insights' && <InsightsPage project={selectedProject} clusters={clusters} notify={notify} />}
           {screen === 'jobs' && <JobsPage jobs={jobs} onRefresh={refreshWorkspace} />}
           {screen === 'integrations' && <IntegrationsPage project={selectedProject} projects={projects} onProjectChange={setProjectId} onSaved={refreshWorkspace} notify={notify} />}
         </div>
@@ -871,7 +874,7 @@ function KeywordsPage({ tenantId, project, clusters, onStart, notify, onGenerate
           <div className="panel-footnote"><ShieldCheck size={14} /> Hiển thị {filtered.length} / {clusters.length} chủ đề. Chạy lại cùng hạt giống sẽ cập nhật nhóm hiện có và gộp gợi ý trùng.</div>
         </section>
       </div>
-      <section className="info-band"><div className="info-icon"><Sparkles size={17} /></div><div><strong>Biến insight thành nội dung</strong><p>Chọn một nhóm từ khóa để bắt đầu brief và tạo bài viết trong đúng dự án.</p></div><button className="text-button" onClick={() => navigate('content')}>Thư viện nội dung <ArrowRight size={14} /></button></section>
+      <section className="info-band"><div className="info-icon"><Sparkles size={17} /></div><div><strong>Biến insight thành nội dung</strong><p>Chọn một nhóm từ khóa để bắt đầu brief và tạo bài viết trong đúng dự án.</p></div><button className="text-button" onClick={() => navigate('insights')}>SEO Insights <ArrowRight size={14} /></button><button className="text-button" onClick={() => navigate('content')}>Thư viện nội dung <ArrowRight size={14} /></button></section>
     </>
   );
 }
@@ -1039,6 +1042,188 @@ function JobIcon({ type }: { type: string }) {
   return <Target size={16} />;
 }
 
+function InsightsPage({ project, clusters, notify }: {
+  project?: Project;
+  clusters: Cluster[];
+  notify: (message: string, kind?: ToastKind) => void;
+}) {
+  const [keywords, setKeywords] = useState(() => Array.from(new Set(clusters.flatMap((cluster) =>
+    [cluster.primaryKeyword, ...clusterRelatedKeywords(cluster)],
+  ))).slice(0, 200).join('\n'));
+  const [domain, setDomain] = useState('');
+  const [auditUrl, setAuditUrl] = useState('');
+  const [backlinkTarget, setBacklinkTarget] = useState('');
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() - 28);
+    return date.toISOString().slice(0, 10);
+  });
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [snapshots, setSnapshots] = useState<SeoSnapshot[]>([]);
+  const [busy, setBusy] = useState('');
+
+  const refresh = useCallback(async () => {
+    if (!project) {
+      setSnapshots([]);
+      return;
+    }
+    try {
+      const response = await api.seoHistory(project.id);
+      setSnapshots(response.data);
+    } catch (error) {
+      notify(`Không tải được dữ liệu SEO: ${errorText(error)}`, 'error');
+    }
+  }, [notify, project?.id]);
+
+  useEffect(() => {
+    setSnapshots([]);
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!keywords.trim() && clusters.length) {
+      setKeywords(Array.from(new Set(clusters.flatMap((cluster) =>
+        [cluster.primaryKeyword, ...clusterRelatedKeywords(cluster)],
+      ))).slice(0, 200).join('\n'));
+    }
+  }, [clusters, keywords]);
+
+  const run = async (kind: string, action: () => Promise<{ data: SeoSnapshot }>) => {
+    if (!project) return;
+    if (kind !== 'search_console' && !window.confirm('Thao tác này gọi DataForSEO và có thể trừ credit theo bảng giá của nhà cung cấp. Bạn muốn tiếp tục không?')) return;
+    setBusy(kind);
+    try {
+      const response = await action();
+      setSnapshots((current) => [response.data, ...current.filter((item) => item.id !== response.data.id)]);
+      notify('Đã lấy và lưu dữ liệu SEO.');
+    } catch (error) {
+      notify(errorText(error), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const parseKeywords = () => Array.from(new Set(
+    keywords.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean),
+  ));
+  const latest = (type: SeoSnapshot['dataType']) => snapshots.find((item) => item.dataType === type);
+
+  if (!project) {
+    return <EmptyState icon={<BarChart3 size={25} />} title="Chưa có dự án để phân tích" description="Tạo dự án SEO trước khi kết nối nguồn dữ liệu." action="Mở dự án" onClick={() => { window.location.hash = '#projects'; }} />;
+  }
+
+  return (
+    <div className="insights-layout">
+      <section className="panel insight-panel">
+        <div className="panel-heading"><div><h3>Volume & độ khó từ khóa</h3><p>DataForSEO: volume, cạnh tranh quảng cáo và độ khó SEO là các chỉ số riêng.</p></div><Hash size={18} className="safe-icon" /></div>
+        <Field label="Từ khóa"><textarea rows={4} value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder="mỗi dòng hoặc cách nhau bằng dấu phẩy" /></Field>
+        <button className="button button-primary" disabled={!!busy || !parseKeywords().length} onClick={() => void run('keyword_metrics', () => api.keywordMetrics(project.id, { keywords: parseKeywords() }))}>
+          {busy === 'keyword_metrics' ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Lấy metrics
+        </button>
+        <SnapshotView snapshot={latest('keyword_metrics')} />
+      </section>
+
+      <section className="panel insight-panel">
+        <div className="panel-heading"><div><h3>Vị trí trên Google</h3><p>Ảnh chụp SERP theo quốc gia/ngôn ngữ và domain tại thời điểm kiểm tra. Tối đa 20 từ khóa/lần.</p></div><BarChart3 size={18} className="safe-icon" /></div>
+        <Field label="Domain website"><input value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="example.com" /></Field>
+        <button className="button button-primary" disabled={!!busy || !domain.trim() || !parseKeywords().length} onClick={() => void run('serp_positions', () => api.serpPositions(project.id, { domain, keywords: parseKeywords().slice(0, 20) }))}>
+          {busy === 'serp_positions' ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Kiểm tra thứ hạng
+        </button>
+        <SnapshotView snapshot={latest('serp_positions')} />
+      </section>
+
+      <section className="panel insight-panel">
+        <div className="panel-heading"><div><h3>Google Search Console</h3><p>Truy vấn, URL, impressions, clicks, CTR và vị trí trung bình của website đã xác minh.</p></div><Activity size={18} className="safe-icon" /></div>
+        <div className="form-grid">
+          <Field label="Từ ngày"><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></Field>
+          <Field label="Đến ngày"><input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></Field>
+        </div>
+        <button className="button button-primary" disabled={!!busy || startDate > endDate} onClick={() => void run('search_console', () => api.searchConsole(project.id, { startDate, endDate, rowLimit: 1000 }))}>
+          {busy === 'search_console' ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Lấy dữ liệu Search Console
+        </button>
+        <SnapshotView snapshot={latest('search_console')} />
+      </section>
+
+      <section className="panel insight-panel">
+        <div className="panel-heading"><div><h3>Audit on-page</h3><p>Kiểm tra kỹ thuật một URL, kết quả được lưu thành lịch sử.</p></div><Check size={18} className="safe-icon" /></div>
+        <Field label="URL cần audit"><input type="url" value={auditUrl} onChange={(event) => setAuditUrl(event.target.value)} placeholder="https://example.com/trang" /></Field>
+        <button className="button button-primary" disabled={!!busy || !auditUrl.trim()} onClick={() => void run('on_page_audit', () => api.onPageAudit(project.id, auditUrl))}>
+          {busy === 'on_page_audit' ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Audit trang
+        </button>
+        <SnapshotView snapshot={latest('on_page_audit')} />
+      </section>
+
+      <section className="panel insight-panel">
+        <div className="panel-heading"><div><h3>Backlink domain</h3><p>Tổng quan liên kết ngoài, domain giới thiệu và chỉ số backlink từ DataForSEO.</p></div><Globe2 size={18} className="safe-icon" /></div>
+        <Field label="Domain"><input value={backlinkTarget} onChange={(event) => setBacklinkTarget(event.target.value)} placeholder="example.com" /></Field>
+        <button className="button button-primary" disabled={!!busy || !backlinkTarget.trim()} onClick={() => void run('backlinks', () => api.backlinks(project.id, backlinkTarget))}>
+          {busy === 'backlinks' ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Phân tích backlink
+        </button>
+        <SnapshotView snapshot={latest('backlinks')} />
+      </section>
+      <div className="panel-footnote"><ShieldCheck size={14} /> DataForSEO là API trả phí và mỗi lần truy vấn có thể trừ credit; xem chi phí trong dashboard trước khi chạy hàng loạt. Số liệu được lưu kèm nguồn/ngữ cảnh/thời điểm. SERP và Search Console là hai loại thứ hạng khác nhau.</div>
+      {snapshots.length > 1 && <section className="panel insight-history"><div className="panel-heading"><div><h3>Lịch sử truy vấn</h3><p>Chọn bản chụp trước để xem lại dữ liệu đã lưu.</p></div><Clock3 size={18} /></div><div className="insight-history-list">{snapshots.slice(0, 12).map((snapshot) => <button key={snapshot.id} onClick={() => setSnapshots((current) => [snapshot, ...current.filter((item) => item.id !== snapshot.id)])}><strong>{snapshot.dataType.replace(/_/g, ' ')}</strong><span>{snapshot.source}</span><small>{snapshotDate(snapshot.retrievedAt)}</small></button>)}</div></section>}
+    </div>
+  );
+}
+
+function SnapshotView({ snapshot }: { snapshot?: SeoSnapshot }) {
+  if (!snapshot) return null;
+  const rows = Array.isArray(snapshot.data) ? snapshot.data : [];
+  const data = typeof snapshot.data === 'object' && snapshot.data !== null ? snapshot.data as Record<string, unknown> : {};
+  const format = (value: unknown) => typeof value === 'number'
+    ? value.toLocaleString('vi-VN', { maximumFractionDigits: 2 })
+    : typeof value === 'string'
+      ? value
+      : Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string').join(', ') || '—'
+        : '—';
+
+  if (snapshot.dataType === 'keyword_metrics') {
+    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><div className="table-scroll"><table className="data-table"><thead><tr><th>TỪ KHÓA</th><th>Ý ĐỊNH</th><th>VOLUME</th><th>ĐỘ KHÓ SEO</th><th>CẠNH TRANH ADS</th></tr></thead><tbody>{rows.map((entry, index) => {
+      const row = entry as Record<string, unknown>;
+      const months = Array.isArray(row.monthlySearches) ? row.monthlySearches as Array<Record<string, unknown>> : [];
+      return <tr key={`${String(row.keyword)}-${index}`}><td title={String(row.volumeSource || row.source)}>{format(row.keyword)}{months.length > 0 && <details className="keyword-monthly"><summary>Xu hướng tháng</summary><span>{months.slice(0, 12).map((month) => `${month.year}-${String(month.month).padStart(2, '0')}: ${format(month.searches)}`).join(' · ')}</span></details>}</td><td>{format(row.searchIntent)}</td><td title={String(row.volumeSource || row.source)}>{format(row.volume)}</td><td title={String(row.seoDifficultySource || 'Nguồn chưa có')}>{format(row.seoDifficulty)}</td><td title={String(row.adCompetitionSource || 'Nguồn chưa có')}>{format(row.adCompetitionLevel ?? row.adCompetition)}</td></tr>;
+    })}</tbody></table></div></div>;
+  }
+  if (snapshot.dataType === 'serp_positions') {
+    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><div className="table-scroll"><table className="data-table"><thead><tr><th>TỪ KHÓA</th><th>VỊ TRÍ</th><th>URL ĐANG XẾP HẠNG</th></tr></thead><tbody>{rows.map((entry, index) => {
+      const row = entry as Record<string, unknown>;
+      return <tr key={`${String(row.keyword)}-${index}`}><td>{format(row.keyword)}</td><td>{typeof row.position === 'number' ? format(row.position) : 'Không thấy trong top 100'}</td><td>{format(row.url)}</td></tr>;
+    })}</tbody></table></div></div>;
+  }
+  if (snapshot.dataType === 'search_console') {
+    const gscRows = Array.isArray(data.rows) ? data.rows : [];
+    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><div className="table-scroll"><table className="data-table"><thead><tr><th>TRUY VẤN</th><th>TRANG</th><th>QUỐC GIA</th><th>THIẾT BỊ</th><th>IMPRESSION</th><th>CLICK</th><th>CTR</th><th>VỊ TRÍ TB.</th></tr></thead><tbody>{gscRows.slice(0, 30).map((entry, index) => {
+      const row = entry as Record<string, unknown>;
+      const keys = Array.isArray(row.keys) ? row.keys : [];
+      return <tr key={`${keys.join('-')}-${index}`}><td>{format(keys[0])}</td><td>{format(keys[1])}</td><td>{format(keys[2])}</td><td>{format(keys[3])}</td><td>{format(row.impressions)}</td><td>{format(row.clicks)}</td><td>{typeof row.ctr === 'number' ? `${(row.ctr * 100).toFixed(1)}%` : '—'}</td><td>{format(row.position)}</td></tr>;
+    })}</tbody></table></div></div>;
+  }
+  if (snapshot.dataType === 'on_page_audit') {
+    const checks = typeof data.checks === 'object' && data.checks !== null ? data.checks : {};
+    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><div className="audit-summary"><strong>Điểm on-page: {format(data.onPageScore)}</strong><span>HTTP {format(data.statusCode)} · H1: {format(data.h1)}</span><span>{format(data.title)}</span><span>{format(data.description)}</span></div><details><summary>Chi tiết kiểm tra</summary><pre>{JSON.stringify(checks, null, 2)}</pre></details></div>;
+  }
+  if (snapshot.dataType === 'backlinks') {
+    const summary = typeof data.summary === 'object' && data.summary !== null ? data.summary as Record<string, unknown> : {};
+    const stats = [
+      ['Backlinks', summary.backlinks],
+      ['Referring domains', summary.referring_domains],
+      ['Referring pages', summary.referring_pages],
+      ['Domain rank', summary.rank],
+      ['Broken backlinks', summary.broken_backlinks],
+      ['Spam score', summary.backlinks_spam_score],
+    ];
+    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><div className="audit-summary">{stats.map(([label, value]) => <span key={String(label)}><strong>{String(label)}:</strong> {format(value)}</span>)}</div></div>;
+  }
+  return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><pre>{JSON.stringify(snapshot.data, null, 2)}</pre></div>;
+}
+
+function snapshotDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+}
+
 function jobTypeName(type: string) {
   return ({ keyword_mining: 'Nghiên cứu từ khóa', content_generation: 'Tạo nội dung', publishing: 'Xuất bản nội dung', indexing: 'Indexing' } as Record<string, string>)[type] || type;
 }
@@ -1100,6 +1285,28 @@ function IntegrationsPage({ project, projects, onProjectChange, onSaved, notify 
   return <form className="integrations-form" onSubmit={save}>
     <section className="panel integration-project-bar"><div><div className="eyebrow">CẤU HÌNH THEO DỰ ÁN</div><strong>Chọn website cần thiết lập</strong></div><select value={project?.id || ''} onChange={(event) => onProjectChange(event.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></section>
     <section className="panel integration-channels"><div className="panel-heading"><div><h3>Kênh mục tiêu</h3><p>Bật các nền tảng sẽ dùng trong dự án này.</p></div><span className="panel-heading-icon"><Globe2 size={17} /></span></div><div className="channel-select-grid channel-select-grid-wide">{publishingChannels.map((channel) => <label className={`channel-option ${channels.includes(channel) ? 'channel-option-active' : ''}`} key={channel}><input type="checkbox" checked={channels.includes(channel)} onChange={() => toggle(channel)} /><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channels.includes(channel) ? 'Đã bật' : 'Chưa bật'}</small></span><span className="check-indicator">{channels.includes(channel) && <Check size={13} />}</span></label>)}</div></section>
+    <section className="panel integration-details">
+      <div className="panel-heading"><div><h3>Dữ liệu SEO nâng cao</h3><p>Thông tin được lưu mã hóa theo dự án; chỉ bạn kết nối được tài khoản provider của mình.</p></div><BarChart3 size={18} className="safe-icon" /></div>
+      <div className="integration-provider">
+        <div className="provider-title"><span className="channel-mark mark-google">D</span><span><strong>DataForSEO</strong><small>Keyword volume, SEO difficulty, SERP, on-page audit và backlink</small><small>{form['seoData.dataforseoLogin'] ? 'Login đã lưu; password được ẩn và giữ nguyên nếu để trống.' : 'Cần nhập API login và password để sử dụng.'}</small></span></div>
+        <div className="form-grid">
+          <Field label="API login"><input value={form['seoData.dataforseoLogin'] || ''} onChange={(event) => set('seoData.dataforseoLogin', event.target.value)} autoComplete="username" /></Field>
+          <Field label="API password"><input type="password" autoComplete="new-password" value={form['seoData.dataforseoPassword'] || ''} onChange={(event) => set('seoData.dataforseoPassword', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field>
+          <Field label="DataForSEO location code"><input type="number" min={1} value={form['seoData.locationCode'] || '2392'} onChange={(event) => set('seoData.locationCode', event.target.value)} /></Field>
+          <Field label="Language code"><input value={form['seoData.languageCode'] || 'vi'} onChange={(event) => set('seoData.languageCode', event.target.value)} /></Field>
+        </div>
+      </div>
+      <div className="integration-provider">
+        <div className="provider-title"><span className="channel-mark mark-google">G</span><span><strong>Google Search Console</strong><small>OAuth refresh token chỉ đọc Search Analytics cho site đã xác minh</small><small>Nhập đầy đủ property, OAuth client ID/secret và refresh token.</small></span></div>
+        <div className="form-grid">
+          <Field label="Property URL"><input value={form['seoData.searchConsoleSiteUrl'] || ''} onChange={(event) => set('seoData.searchConsoleSiteUrl', event.target.value)} placeholder="sc-domain:example.com hoặc https://example.com/" /></Field>
+          <Field label="OAuth client ID"><input value={form['seoData.googleClientId'] || ''} onChange={(event) => set('seoData.googleClientId', event.target.value)} /></Field>
+          <Field label="OAuth client secret"><input type="password" autoComplete="new-password" value={form['seoData.googleClientSecret'] || ''} onChange={(event) => set('seoData.googleClientSecret', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field>
+          <Field label="OAuth refresh token"><input type="password" autoComplete="new-password" value={form['seoData.googleRefreshToken'] || ''} onChange={(event) => set('seoData.googleRefreshToken', event.target.value)} placeholder="Để trống nếu không thay đổi" /></Field>
+        </div>
+      </div>
+      <div className="integration-disclaimer"><Activity size={15} /> Google Search Console cần OAuth client và refresh token có quyền <code>webmasters.readonly</code>. Dữ liệu chỉ áp dụng cho property bạn xác minh. Các chỉ số cạnh tranh ads và độ khó SEO được phân biệt riêng.</div>
+    </section>
     <section className="panel integration-details"><div className="panel-heading"><div><h3>Nguồn nghiên cứu từ khóa</h3><p>Kết nối endpoint SEO trả về danh sách records gồm keyword và volume tùy chọn.</p></div><Hash size={18} className="safe-icon" /></div>
       {miningChannels.map((channel) => <div className="integration-provider" key={channel}>
         <div className="provider-title"><span className={`channel-mark mark-${channel}`}>{channel.slice(0, 1).toUpperCase()}</span><span><strong>{channelLabels[channel]}</strong><small>{channel === 'google' ? 'Hỗ trợ SerpApi Google Autocomplete và custom POST' : 'Custom POST nhận platform, seeds, locale, country và limit'}</small></span><StatusPill status={settingsProject?.platformSettings?.[channel]?.miningEndpoint ? 'connected' : 'pending'} /></div>

@@ -33,6 +33,8 @@ Xây dựng một SaaS Multi-tenant, Niche-Agnostic và Multi-Platform Engine đ
 ### FR-02. Keyword Mining & Intent Clustering Đa Kênh
 - Cho phép chọn một hoặc nhiều `platform`: `google`, `shopee`, `lazada`, `tiktok`, `youtube`.
 - Provider phải chuẩn hóa kết quả về cùng mô hình keyword: từ khóa, nguồn, ngôn ngữ, khu vực, volume, competition, suggestions và metadata.
+- SEO Insights phải phân biệt volume, cạnh tranh quảng cáo và độ khó SEO; cung cấp SERP rank theo thị trường, Search Console clicks/impressions/CTR/average position, on-page audit và backlink summary.
+- Mỗi kết quả SEO bên ngoài phải lưu nguồn, ngữ cảnh truy vấn và thời điểm lấy; Search Console chỉ đọc property được user cấp quyền.
 - Hệ thống phải chạy mining bất đồng bộ, hỗ trợ pagination, rate limit và retry theo provider.
 - Keyword phải được phân nhóm theo semantic similarity và search intent: informational, commercial, transactional, navigational.
 - Một keyword có thể xuất hiện ở nhiều nền tảng nhưng phải giữ nguồn và điểm dữ liệu riêng.

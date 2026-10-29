@@ -43,6 +43,8 @@ IndexerFactory.create(engine)        -> IndexerAdapter
 
 Service không import SDK trực tiếp. Adapter chịu trách nhiệm credential, request signing, response mapping, pagination, timeout và provider-specific retry. Factory không chứa business logic. Credentials lấy từ secret manager/config đã giải mã trong runtime, không ghi vào log.
 
+SEO Insights dùng `DataForSeoClient` cho keyword metrics, SERP, on-page audit và backlink; `GoogleSearchConsoleClient` dùng OAuth refresh token chỉ đọc Search Analytics. Routes kiểm tra tenant/project, gọi provider qua HTTPS an toàn rồi lưu snapshot có nguồn và ngữ cảnh vào `seo_data_snapshots`. Credentials nằm trong `platform_settings.seoData` và được mã hóa/loại khỏi response.
+
 ## 4. Data Flow
 ```text
 Request tạo job
@@ -53,6 +55,10 @@ Request tạo job
     -> Keyword Mining Service
     -> KeywordMinerFactory
        -> Google | Shopee | Lazada | TikTok Search | YouTube Autosuggest
+    -> SEO Insights
+       -> DataForSEO metrics | SERP position | On-Page | Backlinks
+       -> Google Search Console Search Analytics
+       -> Tenant-scoped `seo_data_snapshots` with source and query context
     -> Normalize & Persist keywords
     -> Intent Clustering Service
     -> Content Generation Service

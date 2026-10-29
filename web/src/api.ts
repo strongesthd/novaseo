@@ -40,6 +40,16 @@ export type Cluster = {
   createdAt?: string;
 };
 
+export type SeoSnapshot = {
+  id: string;
+  dataType: 'keyword_metrics' | 'serp_positions' | 'search_console' | 'on_page_audit' | 'backlinks';
+  source: string;
+  context: Record<string, unknown>;
+  data: unknown;
+  retrievedAt: string;
+  createdAt: string;
+};
+
 export type ContentItem = {
   id: string;
   title: string;
@@ -78,7 +88,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `Yêu cầu thất bại (${response.status})`);
+    const message = payload?.error?.message === 'Internal server error' && payload?.error?.code
+      ? `${payload.error.code}: ${payload.error.message}`
+      : payload?.error?.message;
+    throw new Error(message || `Yêu cầu thất bại (${response.status})`);
   }
   return payload as T;
 }
@@ -108,6 +121,18 @@ export const api = {
     request<Envelope<Cluster[]>>(`/api/v1/seo/keywords/clusters/${projectId}?page=1&limit=100`),
   mine: (body: Record<string, unknown>) =>
     request<Envelope<{ jobId: string; status: string }>>('/api/v1/seo/keywords/mine', json('POST', body)),
+  seoHistory: (projectId: string) =>
+    request<Envelope<SeoSnapshot[]>>(`/api/v1/seo/insights/${projectId}/history?limit=30`),
+  keywordMetrics: (projectId: string, body: Record<string, unknown>) =>
+    request<Envelope<SeoSnapshot>>(`/api/v1/seo/insights/${projectId}/keyword-metrics`, json('POST', body)),
+  serpPositions: (projectId: string, body: Record<string, unknown>) =>
+    request<Envelope<SeoSnapshot>>(`/api/v1/seo/insights/${projectId}/serp-positions`, json('POST', body)),
+  searchConsole: (projectId: string, body: Record<string, unknown>) =>
+    request<Envelope<SeoSnapshot>>(`/api/v1/seo/insights/${projectId}/search-console`, json('POST', body)),
+  onPageAudit: (projectId: string, url: string) =>
+    request<Envelope<SeoSnapshot>>(`/api/v1/seo/insights/${projectId}/on-page-audit`, json('POST', { url })),
+  backlinks: (projectId: string, target: string) =>
+    request<Envelope<SeoSnapshot>>(`/api/v1/seo/insights/${projectId}/backlinks`, json('POST', { target })),
   contents: (projectId: string) =>
     request<Envelope<ContentItem[]>>(`/api/v1/seo/content/${projectId}?page=1&limit=100`),
   generate: (body: Record<string, unknown>) =>

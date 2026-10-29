@@ -95,7 +95,40 @@ OpenAI-compatible cấu hình bằng `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL`.
 Response `201`: `{ "data": { "jobId": "uuid", "status": "queued" } }`.
 Response `400` khi format/cluster không hợp lệ; `500` khi không tạo được job.
 
-## 7. Lấy content theo project
+## 7. SEO Insights
+
+Cấu hình nguồn dữ liệu theo project tại `platformSettings.seoData`. Mọi API key, password, OAuth client secret và refresh token được mã hóa khi lưu và không trả lại trong response.
+
+Các trường cấu hình:
+- `dataforseoLogin`, `dataforseoPassword`: API credentials lấy từ DataForSEO.
+- `locationCode` (mặc định `2392`, Việt Nam), `languageCode` (mặc định `vi`).
+- `searchConsoleSiteUrl`: Search Console property, ví dụ `sc-domain:example.com` hoặc `https://example.com/`.
+- `googleClientId`, `googleClientSecret`, `googleRefreshToken`: OAuth client và refresh token có scope `https://www.googleapis.com/auth/webmasters.readonly`.
+
+### `POST /api/v1/seo/insights/:projectId/keyword-metrics`
+Request: `{ "keywords": ["cà phê"], "locationCode": 2392, "languageCode": "vi" }`.
+
+DataForSEO trả lượt tìm kiếm/tháng và lịch sử tháng, cạnh tranh quảng cáo (Google Ads, competition index 0-100) và SEO difficulty (ước lượng 0-100) riêng, kèm search intent khi provider có dữ liệu. Các nguồn/giá trị không được coi là cùng một chỉ số. Mỗi request gọi Keywords Data và DataForSEO Labs. Tối đa 200 từ khóa/request.
+
+### `POST /api/v1/seo/insights/:projectId/serp-positions`
+Request: `{ "keywords": ["cà phê"], "domain": "example.com", "locationCode": 2392, "languageCode": "vi" }`.
+
+Trả vị trí organic của domain/URL trong SERP tại thời điểm kiểm tra; không thấy trong top 100 thì `position` để trống. Giới hạn 20 từ khóa/request. Đây không phải vị trí trung bình lịch sử của Search Console.
+
+### `POST /api/v1/seo/insights/:projectId/search-console`
+Request: `{ "startDate": "2026-10-01", "endDate": "2026-10-28", "rowLimit": 1000 }`.
+
+Dùng OAuth refresh token để truy vấn Search Analytics cho property đã cấu hình; chiều dữ liệu gồm query, page, country và device, cùng clicks, impressions, CTR, average position. `rowLimit` mặc định và tối đa 1000.
+
+### `POST /api/v1/seo/insights/:projectId/on-page-audit`
+Request: `{ "url": "https://example.com/page" }`. Chỉ chấp nhận URL HTTPS công khai.
+
+### `POST /api/v1/seo/insights/:projectId/backlinks`
+Request: `{ "target": "example.com" }`. Trả tổng quan backlink/domain giới thiệu từ DataForSEO.
+
+Mỗi lần gọi thành công được lưu vào `seo_data_snapshots` cùng nguồn, ngữ cảnh, dữ liệu và thời điểm lấy. `GET /api/v1/seo/insights/:projectId/history?type=keyword_metrics&limit=20` trả lịch sử; `type` nhận `keyword_metrics | serp_positions | search_console | on_page_audit | backlinks`. Tất cả endpoint đều kiểm tra tenant/project ownership.
+
+## 8. Lấy content theo project
 ### `GET /api/v1/seo/content/:projectId`
 Query params: `status`, `page`, `limit`, `includePayload`.
 Response `200`:
@@ -104,7 +137,7 @@ Response `200`:
 ```
 Response `400` khi query sai; `500` khi truy vấn thất bại.
 
-## 8. Publish content đa nền tảng
+## 9. Publish content đa nền tảng
 ### `POST /api/v1/seo/content/publish`
 Request body:
 ```json
@@ -128,7 +161,7 @@ Response `400` khi mảng rỗng/platform không được hỗ trợ; `500` khi 
 WordPress, Shopify và webhook có adapter publish thật. TikTok/YouTube hiện
 trả lỗi cấu hình thay vì giả lập đăng thành công.
 
-## 9. Polling trạng thái job bất đồng bộ
+## 10. Polling trạng thái job bất đồng bộ
 ### `GET /api/v1/seo/jobs/:jobId`
 Headers:
 - `Authorization: Bearer <token>`
@@ -156,7 +189,7 @@ Response `200`:
 
 Response `404` khi không tìm thấy `jobId` hoặc `jobId` không thuộc tenant hiện tại. Response `401/403` khi thiếu hoặc không có quyền với tenant; `500` khi truy vấn job thất bại.
 
-## 10. Xuất bản bài viết sang TRIA CAFE
+## 11. Xuất bản bài viết sang TRIA CAFE
 
 Trong `platformSettings.webhook` của project, cấu hình endpoint và secret dùng chung với biến môi trường `NOVASEO_WEBHOOK_SECRET` trên TRIA:
 

@@ -38,4 +38,32 @@ describe('settings encryption', () => {
     expect(decryptSettings(encrypted)).toEqual({ wordpress: { appPassword: 'new-password' } });
     expect(redactSettings(encrypted)).toEqual({ wordpress: {} });
   });
+
+  it('encrypts and redacts SEO provider credentials nested in project settings', () => {
+    vi.stubEnv('ENCRYPTION_KEY', key);
+    const settings = {
+      seoData: {
+        dataforseoLogin: 'account-login',
+        dataforseoPassword: 'account-password',
+        googleClientId: 'oauth-client-id',
+        googleClientSecret: 'oauth-client-secret',
+        googleRefreshToken: 'oauth-refresh-token',
+        searchConsoleSiteUrl: 'sc-domain:example.vn',
+      },
+    };
+
+    const encrypted = encryptSettings(settings);
+
+    expect(encrypted.seoData.dataforseoPassword).not.toBe('account-password');
+    expect(encrypted.seoData.googleClientSecret).not.toBe('oauth-client-secret');
+    expect(encrypted.seoData.googleRefreshToken).not.toBe('oauth-refresh-token');
+    expect(decryptSettings(encrypted)).toEqual(settings);
+    expect(redactSettings(encrypted)).toEqual({
+      seoData: {
+        dataforseoLogin: 'account-login',
+        googleClientId: 'oauth-client-id',
+        searchConsoleSiteUrl: 'sc-domain:example.vn',
+      },
+    });
+  });
 });
