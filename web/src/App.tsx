@@ -1180,7 +1180,11 @@ function SnapshotView({ snapshot }: { snapshot?: SeoSnapshot }) {
         : '—';
 
   if (snapshot.dataType === 'keyword_metrics') {
-    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small><div className="table-scroll"><table className="data-table"><thead><tr><th>TỪ KHÓA</th><th>Ý ĐỊNH</th><th>VOLUME</th><th>ĐỘ KHÓ SEO</th><th>CẠNH TRANH ADS</th></tr></thead><tbody>{rows.map((entry, index) => {
+    const warnings = Array.from(new Set(rows.flatMap((entry) => {
+      const row = entry as Record<string, unknown>;
+      return Array.isArray(row.warnings) ? row.warnings.filter((warning): warning is string => typeof warning === 'string') : [];
+    })));
+    return <div className="insight-results"><small>{snapshot.source} · {snapshotDate(snapshot.retrievedAt)}</small>{warnings.length > 0 && <div className="insight-warning">{warnings.join('; ')}. Các chỉ số còn lại vẫn được lấy từ nguồn thành công.</div>}<div className="table-scroll"><table className="data-table"><thead><tr><th>TỪ KHÓA</th><th>Ý ĐỊNH</th><th>VOLUME</th><th>ĐỘ KHÓ SEO</th><th>CẠNH TRANH ADS</th></tr></thead><tbody>{rows.map((entry, index) => {
       const row = entry as Record<string, unknown>;
       const months = Array.isArray(row.monthlySearches) ? row.monthlySearches as Array<Record<string, unknown>> : [];
       return <tr key={`${String(row.keyword)}-${index}`}><td title={String(row.volumeSource || row.source)}>{format(row.keyword)}{months.length > 0 && <details className="keyword-monthly"><summary>Xu hướng tháng</summary><span>{months.slice(0, 12).map((month) => `${month.year}-${String(month.month).padStart(2, '0')}: ${format(month.searches)}`).join(' · ')}</span></details>}</td><td>{format(row.searchIntent)}</td><td title={String(row.volumeSource || row.source)}>{format(row.volume)}</td><td title={String(row.seoDifficultySource || 'Nguồn chưa có')}>{format(row.seoDifficulty)}</td><td title={String(row.adCompetitionSource || 'Nguồn chưa có')}>{format(row.adCompetitionLevel ?? row.adCompetition)}</td></tr>;

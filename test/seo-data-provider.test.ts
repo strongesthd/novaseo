@@ -48,6 +48,33 @@ describe('DataForSeoClient', () => {
     expect(transport).toHaveBeenCalledTimes(2);
     expect(transport.mock.calls[0][0]).toContain('/keywords_data/google_ads/search_volume/live');
     expect(transport.mock.calls[1][0]).toContain('/dataforseo_labs/google/keyword_overview/live');
+    const labsRequest = JSON.parse(String(transport.mock.calls[1][1].body))[0];
+    expect(labsRequest).toMatchObject({ location_code: 2392, language_name: 'Vietnamese' });
+    expect(labsRequest).not.toHaveProperty('language_code');
+  });
+
+  it('returns available volume metrics and warns when the difficulty endpoint rejects its request', async () => {
+    const transport = vi.fn()
+      .mockResolvedValueOnce(ok({
+        status_code: 20000,
+        tasks: [{
+          status_code: 20000,
+          result: [{ keyword: 'cà phê', search_volume: 1200, competition_index: 84 }],
+        }],
+      }))
+      .mockResolvedValueOnce(ok({
+        status_code: 20000,
+        tasks: [{ status_code: 40501, status_message: "Invalid Field: 'language_code'.", result: null }],
+      }));
+    const client = new DataForSeoClient(transport);
+
+    await expect(client.keywordMetrics(['cà phê'], { login: 'user', password: 'pass' }, 2392, 'vi'))
+      .resolves.toMatchObject([{
+        keyword: 'cà phê',
+        volume: 1200,
+        adCompetition: 84,
+        warnings: ['SEO difficulty unavailable: DATAFORSEO_40501'],
+      }]);
   });
 
   it('normalizes Labs competition to the same 0-100 scale when volume data is missing', async () => {

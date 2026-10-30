@@ -18,6 +18,7 @@ export type KeywordMetrics = {
   adCompetitionSource?: string;
   seoDifficultySource?: string;
   searchIntent?: string;
+  warnings?: string[];
   locationCode?: number;
   languageCode?: string;
   source: string;
@@ -59,6 +60,10 @@ function competitionIndex(value: unknown) {
   return competition !== undefined && competition <= 1 ? competition * 100 : competition;
 }
 
+function providerErrorCode(error: unknown) {
+  return error instanceof ProviderError ? error.code : 'PROVIDER_REQUEST_FAILED';
+}
+
 export class DataForSeoClient {
   constructor(private readonly transport: Transport = (url, options) => requestJson(url, options)) {}
 
@@ -82,13 +87,32 @@ export class DataForSeoClient {
     languageCode: string,
   ): Promise<KeywordMetrics[]> {
     if (!keywords.length || keywords.length > 200) throw new ProviderError('INVALID_KEYWORDS', 'dataforseo', false);
-    const common = { keywords, location_code: locationCode, language_code: languageCode };
-    const [volumeResults, difficultyResults] = await Promise.all([
-      this.post('keywords_data/google_ads/search_volume/live', credentials, common),
+    const languageName = new Intl.DisplayNames(['en'], { type: 'language' }).of(languageCode);
+    if (!languageName) throw new ProviderError('INVALID_LANGUAGE_CODE', 'dataforseo', false);
+    const [volumeOutcome, difficultyOutcome] = await Promise.allSettled([
+      this.post('keywords_data/google_ads/search_volume/live', credentials, {
+        keywords,
+        location_code: locationCode,
+        language_code: languageCode,
+      }),
       this.post('dataforseo_labs/google/keyword_overview/live', credentials, {
-        ...common,
+        keywords,
+        location_code: locationCode,
+        language_name: languageName,
       }),
     ]);
+    if (volumeOutcome.status === 'rejected' && difficultyOutcome.status === 'rejected') {
+      throw volumeOutcome.reason;
+    }
+    const warnings: string[] = [];
+    if (volumeOutcome.status === 'rejected') {
+      warnings.push(`Search volume unavailable: ${providerErrorCode(volumeOutcome.reason)}`);
+    }
+    if (difficultyOutcome.status === 'rejected') {
+      warnings.push(`SEO difficulty unavailable: ${providerErrorCode(difficultyOutcome.reason)}`);
+    }
+    const volumeResults = volumeOutcome.status === 'fulfilled' ? volumeOutcome.value : [];
+    const difficultyResults = difficultyOutcome.status === 'fulfilled' ? difficultyOutcome.value : [];
 
     const byKeyword = new Map<string, KeywordMetrics>();
     const retrievedAt = new Date().toISOString();
@@ -146,11 +170,13 @@ export class DataForSeoClient {
         byKeyword.set(key, existing);
       }
     }
-    return keywords.map((keyword) => byKeyword.get(keyword.toLocaleLowerCase()) ?? {
+    return keywords.map((keyword) => ({
+      ...byKeyword.get(keyword.toLocaleLowerCase()),
       keyword,
-      source: 'DataForSEO',
-      retrievedAt,
-    });
+      source: byKeyword.get(keyword.toLocaleLowerCase())?.source ?? 'DataForSEO',
+      retrievedAt: byKeyword.get(keyword.toLocaleLowerCase())?.retrievedAt ?? retrievedAt,
+      ...(warnings.length ? { warnings } : {}),
+    }));
   }
 
   async serpPositions(

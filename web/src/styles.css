@@ -428,6 +428,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .insight-panel > .button { justify-self: start; }
 .insight-results { min-width: 0; padding-top: 8px; border-top: 1px solid #edf0ee; }
 .insight-results > small { display: block; margin-bottom: 8px; color: #84918b; font-size: 9px; }
+.insight-warning { margin-bottom: 9px; padding: 8px 10px; border: 1px solid #f2e8d6; border-radius: 5px; color: #896d43; background: #fcf8ef; font-size: 9px; line-height: 1.5; }
 .insight-results pre { max-height: 260px; overflow: auto; margin: 0; padding: 10px; border-radius: 5px; color: #52635a; background: #f6f8f6; font-size: 9px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .audit-summary { display: grid; gap: 6px; padding: 10px; border: 1px solid #e8eeea; border-radius: 5px; color: #65756d; font-size: 9px; overflow-wrap: anywhere; }
 .audit-summary strong { color: #34423c; }
