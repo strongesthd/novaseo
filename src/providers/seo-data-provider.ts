@@ -87,8 +87,6 @@ export class DataForSeoClient {
     languageCode: string,
   ): Promise<KeywordMetrics[]> {
     if (!keywords.length || keywords.length > 200) throw new ProviderError('INVALID_KEYWORDS', 'dataforseo', false);
-    const languageName = new Intl.DisplayNames(['en'], { type: 'language' }).of(languageCode);
-    if (!languageName) throw new ProviderError('INVALID_LANGUAGE_CODE', 'dataforseo', false);
     const [volumeOutcome, difficultyOutcome] = await Promise.allSettled([
       this.post('keywords_data/google_ads/search_volume/live', credentials, {
         keywords,
@@ -98,7 +96,7 @@ export class DataForSeoClient {
       this.post('dataforseo_labs/google/keyword_overview/live', credentials, {
         keywords,
         location_code: locationCode,
-        language_name: languageName,
+        language_code: languageCode,
       }),
     ]);
     if (volumeOutcome.status === 'rejected' && difficultyOutcome.status === 'rejected') {
