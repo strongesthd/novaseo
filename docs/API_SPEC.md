@@ -108,7 +108,7 @@ Các trường cấu hình:
 ### `POST /api/v1/seo/insights/:projectId/keyword-metrics`
 Request: `{ "keywords": ["cà phê"], "locationCode": 2392, "languageCode": "vi" }`.
 
-DataForSEO trả lượt tìm kiếm/tháng và lịch sử tháng, cạnh tranh quảng cáo (Google Ads, competition index 0-100) và SEO difficulty (ước lượng 0-100) riêng, kèm search intent khi provider có dữ liệu. Các nguồn/giá trị không được coi là cùng một chỉ số. Mỗi request gọi Keywords Data và DataForSEO Labs. Tối đa 200 từ khóa/request. Nếu một nguồn lỗi nhưng nguồn còn lại có dữ liệu, API vẫn trả metrics thành công kèm `warnings` trên từng dòng; giao diện hiển thị rõ chỉ số nào chưa lấy được.
+DataForSEO trả lượt tìm kiếm/tháng và lịch sử tháng, cạnh tranh quảng cáo (Google Ads, competition index 0-100) và SEO difficulty (ước lượng 0-100) riêng, kèm search intent khi provider có dữ liệu. Các nguồn/giá trị không được coi là cùng một chỉ số. Mỗi request gọi Keywords Data và DataForSEO Labs. Tối đa 200 từ khóa/request. `languageCode` được gửi đến Keywords Data; request Labs chỉ gửi `locationCode` và từ khóa để tránh hai trường ngôn ngữ bị API trả về `40501 Invalid Field`. Nếu một nguồn lỗi nhưng nguồn còn lại có dữ liệu, API vẫn trả metrics thành công kèm `warnings` trên từng dòng; giao diện hiển thị rõ chỉ số nào chưa lấy được.
 
 ### `POST /api/v1/seo/insights/:projectId/serp-positions`
 Request: `{ "keywords": ["cà phê"], "domain": "example.com", "locationCode": 2392, "languageCode": "vi" }`.

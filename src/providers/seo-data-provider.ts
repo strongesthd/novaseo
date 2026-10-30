@@ -96,7 +96,6 @@ export class DataForSeoClient {
       this.post('dataforseo_labs/google/keyword_overview/live', credentials, {
         keywords,
         location_code: locationCode,
-        language_code: languageCode,
       }),
     ]);
     if (volumeOutcome.status === 'rejected' && difficultyOutcome.status === 'rejected') {

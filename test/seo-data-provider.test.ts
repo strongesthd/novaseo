@@ -49,8 +49,9 @@ describe('DataForSeoClient', () => {
     expect(transport.mock.calls[0][0]).toContain('/keywords_data/google_ads/search_volume/live');
     expect(transport.mock.calls[1][0]).toContain('/dataforseo_labs/google/keyword_overview/live');
     const labsRequest = JSON.parse(String(transport.mock.calls[1][1].body))[0];
-    expect(labsRequest).toMatchObject({ location_code: 2392, language_code: 'vi' });
+    expect(labsRequest).toMatchObject({ location_code: 2392, keywords: ['cà phê'] });
     expect(labsRequest).not.toHaveProperty('language_name');
+    expect(labsRequest).not.toHaveProperty('language_code');
   });
 
   it('returns available volume metrics and warns when the difficulty endpoint rejects its request', async () => {
@@ -64,7 +65,7 @@ describe('DataForSeoClient', () => {
       }))
       .mockResolvedValueOnce(ok({
         status_code: 20000,
-        tasks: [{ status_code: 40501, status_message: "Invalid Field: 'language_name'.", result: null }],
+        tasks: [{ status_code: 40501, status_message: "Invalid Field: 'language_code'.", result: null }],
       }));
     const client = new DataForSeoClient(transport);
 
